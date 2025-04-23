@@ -297,7 +297,7 @@ app.get('/api/swap-tickers', async (req, res) => {
                     ask: parseFloat(item.ask1Price),
                     high: parseFloat(item.highPrice24h),
                     low: parseFloat(item.lowPrice24h),
-                    volume: parseFloat(item.urnover24h),
+                    volume: parseFloat(item.turnover24h),
                     timestamp: response.data.time,
                     fundingRate: parseFloat(item.fundingRate),
                     fundingTime: parseInt(item.nextFundingTime),
