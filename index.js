@@ -463,6 +463,8 @@ app.get('/api/bitget-funding-rates', async (req, res) => {
                         minFundingRate: parseFloat(data.minFundingRate),
                         maxFundingRate: parseFloat(data.maxFundingRate)
                     };
+                } else {
+                    console.log(response.data)
                 }
             } catch (error) {
                 console.error(`Error fetching funding rate for ${symbol}:`, error);
