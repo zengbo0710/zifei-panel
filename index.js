@@ -1,10 +1,12 @@
 const ccxt = require('ccxt');
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios'); // 添加axios依赖
+const axios = require('axios');
 
 const app = express();
-const port = 3000;
+const port = 3000; // 使用3001端口避免与其他服务冲突
+
+// 启用CORS和JSON中间件
 
 // 设置静态文件目录
 app.use(express.static('public'));
@@ -27,118 +29,579 @@ const corsOptions = {
 // 启用CORS
 app.use(cors(corsOptions));
 
-// 支持的交易所列表和ID映射
-const supportedExchanges = {
-    // 标准ID映射
-    'binance': ccxt.binance,
-    'okx': ccxt.okx,
-    'bitget': ccxt.bitget,
-    'gateio': ccxt.gateio,
-    'bybit': ccxt.bybit,
-    // 别名映射
-    'binanceus': ccxt.binanceus,
-    'binanceusdm': ccxt.binanceusdm,
-    'binancecoinm': ccxt.binancecoinm,
-    'okex': ccxt.okx, // OKX的旧名称
-    'gate': ccxt.gateio, // Gate.io的别名
-    'huobi': ccxt.huobi,
-    'kucoin': ccxt.kucoin,
-    'mexc': ccxt.mexc,
-    'phemex': ccxt.phemex
-};
 
-// 标准交易所ID列表（不包含别名）
-const standardExchangeIds = [
-    'binance',
-    'okx',
-    'bitget',
-    'gateio',
-    'bybit',
-    'huobi',
-    'kucoin',
-    'mexc',
-    'phemex'
-];
 
-// 创建交易所实例的工厂函数
-const createExchange = (exchangeId) => {
-    const normalizedId = exchangeId.toLowerCase();
-    if (!supportedExchanges[normalizedId]) {
-        throw new Error(`Unsupported exchange: ${exchangeId}. Supported exchanges: ${standardExchangeIds.join(', ')}`);
-    }
-    return new supportedExchanges[normalizedId]({
-        'options':{'defaultType':'swap','enableRateLimit': true,
-    },
-    });
-};
+// 存储最新的交易机会
+let latestOpportunities = [];
+let lastUpdateTime = null;
+// 创建交易对支持映射
+let symbolMap = {};
+// 存储各交易所资金费率信息
+let bybitFundingMap = {};
+let bitgetFundingMap = {};
+let okxFundingMap = {};
+let binanceFundingMap = {};
 
-// 统一交易对格式
-const normalizeSymbol = (symbol, exchange) => {
-    if (exchange.toLowerCase() === 'bybit') {
-        // 处理 Bybit 的格式 BTC/USD:USDT -> BTC/USDT
-        return symbol.replace('/USD:USDT', '/USDT');
-    } else if (exchange.toLowerCase() === 'okx') {
-        // 处理 OKX 的格式 BTC-USDT-SWAP -> BTC/USDT
-        return symbol.replace('-SWAP', '').replace('-', '/');
-    } else if (exchange.toLowerCase() === 'bitget') {
-        // 处理 Bitget 的格式 BTC-USDT-SWAP -> BTC/USDT
-        return symbol.replace('-SWAP', '').replace('-', '/');
-    } else {
-        // 其他交易所保持原样
-        return symbol;
-    }
-};
-
-// 获取所有交易所的永续合约交易对数据
-app.get('/api/all-swap-tickers', async (req, res) => {
+// 获取Bybit资金费率信息的函数
+async function fetchBybitFundingInfo() {
     try {
-        const results = {};
-        const errors = {};
+        // 获取交易对信息
+        const instrumentsResponse = await axios.get('https://api.bybit.com/v5/market/instruments-info', {
+            params: {
+                category: 'linear',
+                limit: 1000,
+            }
+        });
 
-        // 并行获取所有交易所的数据，只使用标准ID
-        await Promise.all(standardExchangeIds.map(async (exchangeId) => {
+        // 获取当前资金费率信息
+        const response = await axios.get('https://api.bybit.com/v5/market/tickers', {
+            params: {
+                category: 'linear'
+            }
+        });
+
+        if (response.data.retCode === 0 && response.data.result.list) {
+
+            for (const item of response.data.result.list) {
+                // 将BTCUSDT转换为BTC/USDT:USDT格式
+                const baseSymbol = item.symbol.replace('USDT', '/USDT:USDT');
+                const symbol = `${baseSymbol}`;
+
+                // 从instruments信息中获取fundingInterval
+                const instrumentInfo = instrumentsResponse.data.result.list.find(
+                    inst => inst.symbol === item.symbol
+                );
+                bybitFundingMap[symbol] = {
+                    fundingRate: parseFloat(item.fundingRate),
+                    fundingTime: parseInt(item.nextFundingTime),
+                    fundingInterval: instrumentInfo ? (parseInt(instrumentInfo.fundingInterval) / 60) : 0 // 转换为小时，默认0
+                };
+            }
+        }
+
+        console.log(`Updated Bybit funding rates at ${new Date().toISOString()}`);
+        console.log(`Total symbols with funding info: ${Object.keys(bybitFundingMap).length}`);
+   
+
+    } catch (error) {
+        console.error('Error fetching Bybit funding rates:', error);
+    }
+}
+
+// 获取Bitget资金费率信息的函数
+async function fetchBitgetFundingInfo() {
+    try {
+        // 获取当前有套利机会的Bitget交易对
+        const bitgetSymbols = new Set();
+        for (const opportunity of latestOpportunities) {
+            if (opportunity.exchangeA === 'BITGET' || opportunity.exchangeB === 'BITGET') {
+                bitgetSymbols.add(opportunity.symbol);
+            }
+        }
+
+        if (bitgetSymbols.size === 0) {
+            console.log('No Bitget opportunities found, skipping funding rate update');
+            return;
+        }
+
+        // 并行请求所有交易对的资金费率数据
+        await Promise.all(Array.from(bitgetSymbols).map(async (symbol) => {
             try {
-                const exchange = createExchange(exchangeId);
+                // 转换符号格式 BTC/USDT:USDT -> BTCUSDT
+                const paramsSymbol = symbol.split('/')[0] + 'USDT';
+
+                // 获取具体交易对的资金费率信息
+                const response = await axios.get('https://api.bitget.com/api/v2/mix/market/current-fund-rate', {
+                    params: {
+                        symbol: paramsSymbol,
+                        productType: 'usdt-futures'
+                    }
+                });
                 
-                // 加载市场数据
-                // await exchange.loadMarkets();
-                
-                // 获取所有永续合约的ticker数据
-                const tickers = await exchange.fetchTickers(undefined, { subType: 'linear' });
-                
-                // 处理并返回数据
-                const swapTickers = {};
-                for (const [symbol, ticker] of Object.entries(tickers)) {
-                    swapTickers[symbol] = {
-                        symbol: symbol,
-                        last: ticker.last,
-                        bid: ticker.bid,
-                        ask: ticker.ask,
-                        high: ticker.high,
-                        low: ticker.low,
-                        volume: ticker.quoteVolume,
-                        timestamp: ticker.timestamp
+                if (response.data.code === '00000' && response.data.data) {
+                    const fundingData = response.data.data[0];
+                    bitgetFundingMap[symbol] = {
+                        fundingRate: parseFloat(fundingData.fundingRate) || 0,
+                        fundingTime: parseInt(fundingData.nextUpdate) || 0,
+                        fundingInterval: parseInt(fundingData.fundingRateInterval)  
                     };
-                }
-                
-                results[exchangeId] = swapTickers;
+                } 
             } catch (error) {
-                errors[exchangeId] = error.message;
+                console.error(`Error fetching funding rate for ${symbol}:`, error.response ? error.response.data : error.message);
             }
         }));
 
-        res.json({
-            success: true,
-            data: results,
-            errors: errors
-        });
+        console.log(`Updated Bitget funding rates at ${new Date().toISOString()}`);
+        console.log(`Total symbols with funding info: ${Object.keys(bitgetFundingMap).length}`);
+
     } catch (error) {
-        console.error('Error fetching all swap tickers:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Error in fetchBitgetFundingInfo:', error);
     }
+}
+
+// 获取OKX资金费率信息的函数
+async function fetchOKXFundingInfo() {
+    try {
+        // 获取当前有套利机会的OKX交易对
+        const okxSymbols = new Set();
+        for (const opportunity of latestOpportunities) {
+            if (opportunity.exchangeA === 'OKX' || opportunity.exchangeB === 'OKX') {
+                okxSymbols.add(opportunity.symbol);
+            }
+        }
+
+        if (okxSymbols.size === 0) {
+            console.log('No OKX opportunities found, skipping funding rate update');
+            return;
+        }
+
+        // 并行请求所有交易对的资金费率数据
+        await Promise.all(Array.from(okxSymbols).map(async (symbol) => {
+            try {
+                // 将 BTC/USDT:USDT 转换为 BTC-USDT-SWAP
+                const okxSymbol = symbol.split('/')[0] + '-USDT-SWAP';
+
+                const response = await axios.get('https://www.okx.com/api/v5/public/funding-rate', {
+                    params: {
+                        instId: okxSymbol
+                    }
+                });
+
+
+                if (response.data.code === '0' && response.data.data && response.data.data.length > 0) {
+                    const data = response.data.data[0];
+                    const fundingTime = parseInt(data.fundingTime);
+                    const nextFundingTime = parseInt(data.nextFundingTime);
+                    const fundingInterval = Math.floor((nextFundingTime - fundingTime) / 1000 / 60 / 60); // 转换为小时
+
+                    okxFundingMap[symbol] = {
+                        fundingRate: parseFloat(data.fundingRate),
+                        fundingTime: fundingTime,
+                        fundingInterval: fundingInterval
+                    };
+                }
+            } catch (error) {
+                console.error(`Error fetching funding rate for ${symbol}:`, error.response ? error.response.data : error.message);
+            }
+        }));
+
+        console.log(`Updated OKX funding rates at ${new Date().toISOString()}`);
+        console.log(`Total symbols with funding info: ${Object.keys(okxFundingMap).length}`);
+
+    } catch (error) {
+        console.error('Error in fetchOKXFundingInfo:', error);
+    }
+}
+
+// 获取Binance资金费率信息的函数
+async function fetchBinanceFundingInfo() {
+    try {
+        // 获取资金费率数据
+        const fundingResponse = await axios.get('https://fapi.binance.com/fapi/v1/premiumIndex');
+        
+        // 获取资金费率间隔数据
+        const fundingInfoResponse = await axios.get('https://fapi.binance.com/fapi/v1/fundingInfo');
+
+        // 处理资金费率数据
+        for (const item of fundingResponse.data) {
+            const symbol = item.symbol.replace('USDT', '/USDT:USDT');
+            
+            // 查找对应的fundingInterval
+            const fundingInfo = fundingInfoResponse.data.find(info => info.symbol === item.symbol);
+            const fundingInterval = fundingInfo ? parseInt(fundingInfo.fundingIntervalHours) : 8;
+
+            binanceFundingMap[symbol] = {
+                fundingRate: parseFloat(item.lastFundingRate),
+                fundingTime: item.nextFundingTime,
+                fundingInterval: fundingInterval
+            };
+        }
+
+        console.log(`Updated Binance funding rates at ${new Date().toISOString()}`);
+        console.log(`Total Binance symbols with funding info: ${Object.keys(binanceFundingMap).length}`);
+
+    } catch (error) {
+        console.error('Error fetching Binance funding rates:', error);
+    }
+}
+
+// 筛选规则函数
+function filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers, bitgetTickers) {
+    // 只对 Bitget 进行筛选
+    if (opportunity.exchanges.includes('BITGET')) {
+        // 获取 Bitget 的交易量
+        const bitgetVolume = bitgetTickers[opportunity.symbol]?.volume || 0;
+        
+        // 获取 Bitget 的资金费率（根据是 A 还是 B 交易所选择正确的字段）
+        const bitgetFundingRate = opportunity.exchanges[0] === 'BITGET' ? 
+            Math.abs(opportunity['A-FUNDINGRATE']) : 
+            Math.abs(opportunity['B-FUNDINGRATE']);
+
+        // 交易量必须大于等于 100 万且资金费率绝对值大于等于 0.2%
+        if (bitgetVolume < 1000000 || bitgetFundingRate < 0.001) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+async function main() {
+    // 创建交易所实例
+    const bitget = new ccxt.bitget();
+    const okx = new ccxt.okx();
+    const bybit = new ccxt.bybit();
+    const binance = new ccxt.binance();
+
+    try {
+        // 先加载 Bitget 的市场数据和 ticker
+        await bitget.loadMarkets();
+        
+        // 直接使用网络请求获取Bitget数据，包含资金费率
+        const bitgetResponse = await axios.get('https://api.bitget.com/api/v2/mix/market/tickers', {
+            params: {
+                productType: 'USDT-FUTURES'
+            }
+        });
+        
+        // 处理 Bitget 数据
+        const bitgetTickers = {};
+        
+        if (bitgetResponse.data.code === '00000' && bitgetResponse.data.data) {
+            for (const item of bitgetResponse.data.data) {
+                const baseSymbol = item.symbol.replace('USDT', '');
+                const symbol = `${baseSymbol}/USDT:USDT`;
+                
+                // 直接添加到 bitgetTickers，不进行筛选
+                bitgetTickers[symbol] = {
+                    symbol: symbol,
+                    last: parseFloat(item.lastPr),
+                    bid: parseFloat(item.bidPr),
+                    ask: parseFloat(item.askPr),
+                    high: parseFloat(item.high24h),
+                    low: parseFloat(item.low24h),
+                    volume: parseFloat(item.usdtVolume),
+                    timestamp: parseInt(item.ts)
+                };
+                
+                // 更新全局的 bitgetFundingMap，只设置资金费率
+                if (!bitgetFundingMap[symbol]) {
+                    bitgetFundingMap[symbol] = {
+                        fundingRate: parseFloat(item.fundingRate),
+                        fundingTime: 0,
+                        fundingInterval: 0
+                    };
+                } else {
+                    // 只更新资金费率，保留其他字段的现有值
+                    bitgetFundingMap[symbol].fundingRate = parseFloat(item.fundingRate);
+                }
+            }
+        }
+
+        // 加载其他交易所的市场数据
+        await Promise.all([okx.loadMarkets(), bybit.loadMarkets(), binance.loadMarkets()]);
+
+        // 获取其他交易所的ticker数据
+        const [okxTickers, bybitTickers, binanceTickers] = await Promise.all([
+            okx.fetchTickers(undefined, { 'type': 'swap' }),
+            bybit.fetchTickers(undefined, { 'category': 'linear' }),
+            binance.fetchTickers(undefined, { 'type': 'future' })
+        ]);
+
+        // 过滤掉超过12小时未更新的币种
+        const currentTime = Date.now();
+        const twelveHoursInMs = 12 * 60 * 60 * 1000;
+        const filteredBinanceTickers = {};
+
+        for (const [symbol, ticker] of Object.entries(binanceTickers)) {
+            if (ticker.timestamp && (currentTime - ticker.timestamp) <= twelveHoursInMs) {
+                filteredBinanceTickers[symbol] = ticker;
+                filteredBinanceTickers[symbol].ask = ticker.last;
+                filteredBinanceTickers[symbol].bid = ticker.last;
+            }
+        }
+
+        // 清空之前的映射
+        symbolMap = {};
+
+        // 添加所有通过筛选的 Bitget 交易对
+        for (const symbol in bitgetTickers) {
+            symbolMap[symbol] = {
+                okx: false,
+                bitget: true,
+                bybit: false,
+                binance: false,
+                tickers: {
+                    bitget: bitgetTickers[symbol]
+                }
+            };
+        }
+
+        // 只为已有的 Bitget 交易对添加其他交易所的支持情况
+        for (const symbol in symbolMap) {
+            // 添加 OKX 支持
+            if (okxTickers[symbol]) {
+                symbolMap[symbol].okx = true;
+                symbolMap[symbol].tickers.okx = okxTickers[symbol];
+            }
+
+            // 添加 Bybit 支持
+            if (bybitTickers[symbol]) {
+                symbolMap[symbol].bybit = true;
+                symbolMap[symbol].tickers.bybit = bybitTickers[symbol];
+            }
+
+            // 添加 Binance 支持
+            if (filteredBinanceTickers[symbol]) {
+                symbolMap[symbol].binance = true;
+                symbolMap[symbol].tickers.binance = filteredBinanceTickers[symbol];
+            }
+        }
+
+        // 存储所有机会
+        const opportunities = [];
+
+        // 检查价差的函数
+        function checkSpread(symbol, exchangeATicker, exchangeBTicker, exchangeAPair, exchangeBPair) {
+            // 确保价格有效
+            if (!exchangeATicker.last || !exchangeBTicker.last) return;
+
+            // LASB = Long A Short B = A-ASK/B-BID
+            const LASB = exchangeATicker.ask / exchangeBTicker.bid;
+            // SALB = Short A Long B = A-BID/B-ASK
+            const SALB = exchangeATicker.bid / exchangeBTicker.ask;
+
+            // 获取资金费率
+            let fundingRateA = 0;
+            let fundingRateB = 0;
+
+            if (exchangeAPair === 'BITGET' && bitgetFundingMap[symbol]) {
+                fundingRateA = bitgetFundingMap[symbol].fundingRate;
+            } else if (exchangeAPair === 'BYBIT' && bybitFundingMap[symbol]) {
+                fundingRateA = bybitFundingMap[symbol].fundingRate || 0;
+            } else if (exchangeAPair === 'OKX' && okxFundingMap[symbol]) {
+                fundingRateA = okxFundingMap[symbol].fundingRate || 0;
+            } else if (exchangeAPair === 'BINANCE' && binanceFundingMap[symbol]) {
+                fundingRateA = binanceFundingMap[symbol].fundingRate || 0;
+            }
+
+            if (exchangeBPair === 'BITGET' && bitgetFundingMap[symbol]) {
+                fundingRateB = bitgetFundingMap[symbol].fundingRate;
+            } else if (exchangeBPair === 'BYBIT' && bybitFundingMap[symbol]) {
+                fundingRateB = bybitFundingMap[symbol].fundingRate || 0;
+            } else if (exchangeBPair === 'OKX' && okxFundingMap[symbol]) {
+                fundingRateB = okxFundingMap[symbol].fundingRate || 0;
+            } else if (exchangeBPair === 'BINANCE' && binanceFundingMap[symbol]) {
+                fundingRateB = binanceFundingMap[symbol].fundingRate || 0;
+            }
+
+            // 在计算套利机会的地方修改调用方式
+            const opportunity = {
+                symbol: symbol,
+                exchanges: [exchangeAPair, exchangeBPair],
+                'A-FUNDINGRATE': fundingRateA,
+                'B-FUNDINGRATE': fundingRateB,
+                LASB: LASB,
+                SALB: SALB
+            };
+
+            // 使用筛选函数
+            if (filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers, bitgetTickers)) {
+                const opportunityType = LASB < SALB ? "LASB" : "SALB";
+                const opportunityValue = opportunityType === "LASB" ? Math.abs(1 - LASB) : Math.abs(1 - SALB);
+
+                const opportunityObj = {
+                    "pair": "A-B",
+                    "exchangeA": exchangeAPair,
+                    "exchangeB": exchangeBPair,
+                    "symbol": symbol,
+                    "A-ASK": exchangeATicker.ask,
+                    "A-BID": exchangeATicker.bid,
+                    "A-LAST": exchangeATicker.last,
+                    "B-ASK": exchangeBTicker.ask,
+                    "B-BID": exchangeBTicker.bid,
+                    "B-LAST": exchangeBTicker.last,
+                    "LASB": LASB,
+                    "SALB": SALB,
+                    "timestamp": new Date().toISOString(),
+                    "opportunity": opportunityType,
+                    "opportunityValue": opportunityValue,
+                    // 默认添加所有FUNDING字段
+                    "A-FUNDINGRATE": fundingRateA,
+                    "A-FUNDINGTIME": undefined,
+                    "A-FUNDINGPERIOD": undefined,
+                    "B-FUNDINGRATE": fundingRateB,
+                    "B-FUNDINGTIME": undefined,
+                    "B-FUNDINGPERIOD": undefined
+                };
+
+                // 添加各交易所资金费率信息
+                if (exchangeAPair === 'BYBIT' && bybitFundingMap[symbol]) {
+                    opportunityObj["A-FUNDINGRATE"] = bybitFundingMap[symbol].fundingRate;
+                    opportunityObj["A-FUNDINGTIME"] = bybitFundingMap[symbol].fundingTime;
+                    opportunityObj["A-FUNDINGPERIOD"] = bybitFundingMap[symbol].fundingInterval;
+                }
+                if (exchangeBPair === 'BYBIT' && bybitFundingMap[symbol]) {
+                    opportunityObj["B-FUNDINGRATE"] = bybitFundingMap[symbol].fundingRate;
+                    opportunityObj["B-FUNDINGTIME"] = bybitFundingMap[symbol].fundingTime;
+                    opportunityObj["B-FUNDINGPERIOD"] = bybitFundingMap[symbol].fundingInterval;
+                }
+
+                if (exchangeAPair === 'BITGET' && bitgetFundingMap[symbol]) {
+                    opportunityObj["A-FUNDINGRATE"] = bitgetFundingMap[symbol].fundingRate;
+                    opportunityObj["A-FUNDINGTIME"] = bitgetFundingMap[symbol].fundingTime;
+                    opportunityObj["A-FUNDINGPERIOD"] = bitgetFundingMap[symbol].fundingInterval;
+                }
+                if (exchangeBPair === 'BITGET' && bitgetFundingMap[symbol]) {
+                    opportunityObj["B-FUNDINGRATE"] = bitgetFundingMap[symbol].fundingRate;
+                    opportunityObj["B-FUNDINGTIME"] = bitgetFundingMap[symbol].fundingTime;
+                    opportunityObj["B-FUNDINGPERIOD"] = bitgetFundingMap[symbol].fundingInterval;
+                }
+
+                if (exchangeAPair === 'OKX' && okxFundingMap[symbol]) {
+                    opportunityObj["A-FUNDINGRATE"] = okxFundingMap[symbol].fundingRate;
+                    opportunityObj["A-FUNDINGTIME"] = okxFundingMap[symbol].fundingTime;
+                    opportunityObj["A-FUNDINGPERIOD"] = okxFundingMap[symbol].fundingInterval;
+                }
+                if (exchangeBPair === 'OKX' && okxFundingMap[symbol]) {
+                    opportunityObj["B-FUNDINGRATE"] = okxFundingMap[symbol].fundingRate;
+                    opportunityObj["B-FUNDINGTIME"] = okxFundingMap[symbol].fundingTime;
+                    opportunityObj["B-FUNDINGPERIOD"] = okxFundingMap[symbol].fundingInterval;
+                }
+
+                if (exchangeAPair === 'BINANCE' && binanceFundingMap[symbol]) {
+                    opportunityObj["A-FUNDINGRATE"] = binanceFundingMap[symbol].fundingRate;
+                    opportunityObj["A-FUNDINGTIME"] = binanceFundingMap[symbol].fundingTime;
+                    opportunityObj["A-FUNDINGPERIOD"] = binanceFundingMap[symbol].fundingInterval;
+                }
+                if (exchangeBPair === 'BINANCE' && binanceFundingMap[symbol]) {
+                    opportunityObj["B-FUNDINGRATE"] = binanceFundingMap[symbol].fundingRate;
+                    opportunityObj["B-FUNDINGTIME"] = binanceFundingMap[symbol].fundingTime;
+                    opportunityObj["B-FUNDINGPERIOD"] = binanceFundingMap[symbol].fundingInterval;
+                }
+
+                opportunities.push(opportunityObj);
+            }
+        }
+
+        // 遍历所有交易对，检查支持的交易所组合
+        for (const symbol in symbolMap) {
+            const support = symbolMap[symbol];
+            const tickers = support.tickers;
+
+            // Binance vs others
+            if (support.binance) {
+                if (support.okx) {
+                    checkSpread(symbol, tickers.binance, tickers.okx, "BINANCE", "OKX");
+                }
+                if (support.bitget) {
+                    checkSpread(symbol, tickers.binance, tickers.bitget, "BINANCE", "BITGET");
+                }
+                if (support.bybit) {
+                    checkSpread(symbol, tickers.binance, tickers.bybit, "BINANCE", "BYBIT");
+                }
+            }
+
+            // OKX vs others
+            if (support.okx) {
+                if (support.bitget) {
+                    checkSpread(symbol, tickers.okx, tickers.bitget, "OKX", "BITGET");
+                }
+                if (support.bybit) {
+                    checkSpread(symbol, tickers.okx, tickers.bybit, "OKX", "BYBIT");
+                }
+            }
+
+            // BYBIT vs BITGET
+            if (support.bybit && support.bitget) {
+                checkSpread(symbol, tickers.bybit, tickers.bitget, "BYBIT", "BITGET");
+            }
+        }
+
+        // 按照价差绝对值倒序排序
+        opportunities.sort((a, b) => b.opportunityValue - a.opportunityValue);
+        
+        // 更新最新的交易机会和更新时间
+        latestOpportunities = opportunities;
+        lastUpdateTime = new Date().toISOString();
+
+        // 输出到控制台
+        if (opportunities.length > 0) {
+            console.log("\nFound opportunities (sorted by spread):");
+
+            console.log(`\nTotal opportunities found: ${opportunities.length}`);
+            console.log(`Active Binance pairs: ${Object.keys(filteredBinanceTickers).length}`);
+            console.log(`Bitget pairs with high funding rate: ${Object.keys(bitgetTickers).length}`);
+        } else {
+            console.log("\nNo opportunities found.");
+        }
+
+        console.log("\nCheck completed at:", lastUpdateTime);
+        console.log("----------------------------------------");
+
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+
+// API路由
+
+// 获取所有交易机会
+app.get('/api/opportunities', (req, res) => {
+    res.json({
+        "success": true,
+        "data": {
+            "opportunities": latestOpportunities,
+            "lastUpdate": lastUpdateTime,
+            "count": latestOpportunities.length,
+        }
+    });
+});
+
+// 获取特定交易对的机会
+app.get('/api/opportunities/:symbol', (req, res) => {
+    const symbol = req.params.symbol.toUpperCase();
+    const filteredOpportunities = latestOpportunities.filter(opp => opp.symbol === symbol);
+    
+    res.json({
+        "success": true,
+        "data": {
+            "opportunities": filteredOpportunities,
+            "lastUpdate": lastUpdateTime,
+            "count": filteredOpportunities.length
+        }
+    });
+});
+
+// 获取特定交易所对的机会
+app.get('/api/opportunities/pair/:pair', (req, res) => {
+    const pair = req.params.pair.toUpperCase();
+    const filteredOpportunities = latestOpportunities.filter(opp => opp.pair === pair);
+    
+    res.json({
+        "success": true,
+        "data": {
+            "opportunities": filteredOpportunities,
+            "lastUpdate": lastUpdateTime,
+            "count": filteredOpportunities.length
+        }
+    });
+});
+
+// 获取状态信息
+app.get('/api/status', (req, res) => {
+    res.json({
+        "success": true,
+        "data": {
+            "lastUpdate": lastUpdateTime,
+            "totalOpportunities": latestOpportunities.length,
+            "isRunning": true,
+            // "bybitFundingMap": bybitFundingMap,
+            "bitgetFundingMap": bitgetFundingMap,
+            // "okxFundingMap": okxFundingMap,
+            // "binanceFundingMap": binanceFundingMap
+        }
+    });
 });
 
 // K线数据接口
@@ -179,370 +642,72 @@ app.get('/api/kline', async (req, res) => {
         });
     }
 });
+// 标准交易所ID列表（不包含别名）
+const standardExchangeIds = [
+    'binance',
+    'okx',
+    'bitget',
+    'gateio',
+    'bybit',
+    'huobi',
+    'kucoin',
+    'mexc',
+    'phemex'
+];
+// 支持的交易所列表和ID映射
+const supportedExchanges = {
+    // 标准ID映射
+    'binance': ccxt.binance,
+    'okx': ccxt.okx,
+    'bitget': ccxt.bitget,
+    'gateio': ccxt.gateio,
+    'bybit': ccxt.bybit,
+    // 别名映射
+    'binanceus': ccxt.binanceus,
+    'binanceusdm': ccxt.binanceusdm,
+    'binancecoinm': ccxt.binancecoinm,
+    'okex': ccxt.okx, // OKX的旧名称
+    'gate': ccxt.gateio, // Gate.io的别名
+    'huobi': ccxt.huobi,
+    'kucoin': ccxt.kucoin,
+    'mexc': ccxt.mexc,
+    'phemex': ccxt.phemex
+};
 
-// 买卖盘数据接口
-app.get('/api/orderbook', async (req, res) => {
-    try {
-        const { 
-            exchange = 'binance',
-            symbol = 'BTC/USDT',
-            limit = 20 // 默认返回20档深度
-        } = req.query;
-        
-        // 创建交易所实例
-        const exchangeInstance = createExchange(exchange);
-        
-        // 获取订单簿数据
-        const orderbook = await exchangeInstance.fetchOrderBook(symbol, limit);
-        
-        // 格式化数据
-        const orderbookData = {
-            timestamp: orderbook.timestamp,
-            datetime: orderbook.datetime,
-            nonce: orderbook.nonce,
-            bids: orderbook.bids.map(bid => ({
-                price: bid[0],
-                amount: bid[1]
-            })),
-            asks: orderbook.asks.map(ask => ({
-                price: ask[0],
-                amount: ask[1]
-            }))
-        };
-
-        res.json({
-            success: true,
-            data: orderbookData
-        });
-    } catch (error) {
-        console.error('Error fetching orderbook data:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+const createExchange = (exchangeId) => {
+    const normalizedId = exchangeId.toLowerCase();
+    if (!supportedExchanges[normalizedId]) {
+        throw new Error(`Unsupported exchange: ${exchangeId}. Supported exchanges: ${standardExchangeIds.join(', ')}`);
     }
-});
+    return new supportedExchanges[normalizedId]({
+        'options':{'defaultType':'swap','enableRateLimit': true,
+    },
+    });
+};
 
-// 获取单个交易所的永续合约交易对数据
-app.get('/api/swap-tickers', async (req, res) => {
-    try {
-        const { exchange = 'binance' } = req.query;
-        
-        const exchangeInstance = createExchange(exchange);
-        
-        // 加载市场数据
-        await exchangeInstance.loadMarkets();
-        
-        // 获取永续合约的ticker数据
-        let tickers;
-        if (exchange.toLowerCase() === 'bitget') {
-            // 直接使用网络请求获取Bitget数据
-            const response = await axios.get('https://api.bitget.com/api/v2/mix/market/tickers', {
-                params: {
-                    productType: 'USDT-FUTURES'
-                }
-            });
-            
-            // 处理Bitget返回的数据
-            tickers = {};
-            for (const item of response.data.data) {
-                // 将BTCUSDT转换为BTC/USDT:USDT
-                const baseSymbol = item.symbol.replace('USDT', '');
-                const symbol = `${baseSymbol}/USDT:USDT`;
-                tickers[symbol] = {
-                    symbol: symbol,
-                    last: parseFloat(item.lastPr),
-                    bid: parseFloat(item.bidPr),
-                    ask: parseFloat(item.askPr),
-                    high: parseFloat(item.high24h),
-                    low: parseFloat(item.low24h),
-                    volume: parseFloat(item.usdtVolume),
-                    timestamp: parseInt(item.ts),
-                    fundingRate: parseFloat(item.fundingRate)
-                };
-            }
-        } else if (exchange.toLowerCase() === 'bybit') {
-            // 获取交易对信息
-            const instrumentsResponse = await axios.get('https://api.bybit.com/v5/market/instruments-info', {
-                params: {
-                    category: 'linear'
-                }
-            });
 
-            // 创建symbol到fundingInterval的映射
-            const fundingIntervals = {};
-            if (instrumentsResponse.data.retCode === 0 && instrumentsResponse.data.result.list) {
-                for (const item of instrumentsResponse.data.result.list) {
-                    fundingIntervals[item.symbol] = parseInt(item.fundingInterval);
-                }
-            }
 
-            // 获取ticker数据
-            const response = await axios.get('https://api.bybit.com/v5/market/tickers', {
-                params: {
-                    category: 'linear'
-                }
-            });
-            
-            // 处理Bybit返回的数据
-            tickers = {};
-            for (const item of response.data.result.list) {
-                // 将BTCUSD转换为BTC/USD:USDT
-                const baseSymbol = item.symbol.replace('USDT', '');
-                const symbol = `${baseSymbol}/USDT:USDT`;
-                tickers[symbol] = {
-                    symbol: symbol,
-                    last: parseFloat(item.lastPrice),
-                    bid: parseFloat(item.bid1Price),
-                    ask: parseFloat(item.ask1Price),
-                    high: parseFloat(item.highPrice24h),
-                    low: parseFloat(item.lowPrice24h),
-                    volume: parseFloat(item.turnover24h),
-                    timestamp: response.data.time,
-                    fundingRate: parseFloat(item.fundingRate),
-                    fundingTime: parseInt(item.nextFundingTime),
-                    fundingRateInterval: Math.floor(fundingIntervals[item.symbol] / 60) // 转换为小时
-                };
-            }
-        } else if (exchange.toLowerCase() === 'binance') {
-            // 获取ticker数据
-            tickers = await exchangeInstance.fetchTickers(undefined, { subType: 'linear' });
-            
-            // 获取资金费率数据
-            const fundingResponse = await axios.get('https://fapi.binance.com/fapi/v1/premiumIndex');
-            const fundingData = {};
-            for (const item of fundingResponse.data) {
-                const symbol = item.symbol.replace('USDT', '/USDT:USDT');
-                fundingData[symbol] = {
-                    fundingRate: parseFloat(item.lastFundingRate),
-                    fundingTime: item.nextFundingTime
-                };
-            }
-
-            // 获取资金费率间隔数据
-            const fundingInfoResponse = await axios.get('https://fapi.binance.com/fapi/v1/fundingInfo');
-            const fundingIntervals = {};
-            for (const item of fundingInfoResponse.data) {
-                const symbol = item.symbol.replace('USDT', '/USDT:USDT');
-                fundingIntervals[symbol] = parseInt(item.fundingIntervalHours);
-            }
-            
-            // 处理CCXT返回的数据，添加fundingRate和fundingTime字段
-            for (const [symbol, ticker] of Object.entries(tickers)) {
-                tickers[symbol] = {
-                    symbol: symbol,
-                    last: ticker.last,
-                    bid: ticker.bid,
-                    ask: ticker.ask,
-                    high: ticker.high,
-                    low: ticker.low,
-                    volume: ticker.quoteVolume,
-                    timestamp: ticker.timestamp,
-                    fundingRate: fundingData[symbol]?.fundingRate || 0,
-                    fundingTime: fundingData[symbol]?.fundingTime || 0,
-                    fundingRateInterval: fundingIntervals[symbol] || 8 // 默认值为8小时
-                };
-            }
-        } else {
-            // 其他交易所使用CCXT
-            tickers = await exchangeInstance.fetchTickers(undefined, { subType: 'linear' });
-            
-            // 处理CCXT返回的数据，添加fundingRate字段
-            for (const [symbol, ticker] of Object.entries(tickers)) {
-                tickers[symbol] = {
-                    symbol: symbol,
-                    last: ticker.last,
-                    bid: ticker.bid,
-                    ask: ticker.ask,
-                    high: ticker.high,
-                    low: ticker.low,
-                    volume: ticker.quoteVolume,
-                    timestamp: ticker.timestamp,
-                    fundingRate: 0,
-                    fundingTime: 0
-                };
-            }
-        }
-
-        res.json({
-            success: true,
-            data: tickers
-        });
-    } catch (error) {
-        console.error(`Error fetching swap tickers for ${req.query.exchange}:`, error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 资费查询接口
-app.get('/api/funding-rates', async (req, res) => {
-    try {
-        const { 
-            exchange = 'binance'
-        } = req.query;
-        
-        const exchangeInstance = createExchange(exchange);
-        
-        // 加载市场数据
-        await exchangeInstance.loadMarkets();
-        
-        // 获取资费数据
-        let fundingRates;
-        if (exchange.toLowerCase() === 'bitget') {
-            // Bitget需要指定type参数
-            fundingRates = await exchangeInstance.fetchFundingRates(undefined, { type: 'swap' });
-        } else if (exchange.toLowerCase() === 'okx') {
-            // OKX需要指定instType参数
-            fundingRates = await exchangeInstance.fetchFundingRates(undefined, { instType: 'SWAP' });
-        } else {
-            // 其他交易所使用默认参数
-            fundingRates = await exchangeInstance.fetchFundingRates();
-        }
-        
-        // 处理并返回数据
-        const formattedRates = {};
-        for (const [symbol, rate] of Object.entries(fundingRates)) {
-            formattedRates[symbol] = {
-                symbol: symbol,
-                timestamp: rate.timestamp,
-                datetime: rate.datetime,
-                fundingRate: rate.fundingRate,
-                nextFundingTime: rate.nextFundingTime
-            };
-        }
-
-        res.json({
-            success: true,
-            data: formattedRates
-        });
-    } catch (error) {
-        console.error(`Error fetching funding rates for ${req.query.exchange}:`, error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 获取Bitget多个交易对的资金费率数据
-app.get('/api/bitget-funding-rates', async (req, res) => {
-    try {
-        const { symbols = '' } = req.query;
-        if (!symbols) {
-            return res.status(400).json({
-                success: false,
-                error: 'Symbols parameter is required'
-            });
-        }
-
-        const symbolList = symbols.split(',');
-        const results = {};
-
-        // 并行请求所有交易对的资金费率数据
-        await Promise.all(symbolList.map(async (symbol) => {
-            try {
-                // 将 BTC/USD:USDT 转换为 BTCUSDT
-                const bitgetSymbol = symbol.replace('/USDT:USDT', 'USDT');
-                const response = await axios.get('https://api.bitget.com/api/v2/mix/market/current-fund-rate', {
-                    params: {
-                        symbol: bitgetSymbol,
-                        productType: 'usdt-futures'
-                    }
-                });
-
-                if (response.data.code === '00000' && response.data.data && response.data.data.length > 0) {
-                    const data = response.data.data[0];
-                    results[symbol] = {
-                        symbol: symbol,
-                        fundingRate: parseFloat(data.fundingRate),
-                        fundingTime: parseInt(data.nextUpdate),
-                        fundingRateInterval: parseInt(data.fundingRateInterval),
-                        minFundingRate: parseFloat(data.minFundingRate),
-                        maxFundingRate: parseFloat(data.maxFundingRate)
-                    };
-                } else {
-                    console.log(response.data)
-                }
-            } catch (error) {
-                console.error(`Error fetching funding rate for ${symbol}:`, error);
-            }
-        }));
-
-        res.json({
-            success: true,
-            data: results
-        });
-    } catch (error) {
-        console.error('Error fetching Bitget funding rates:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 获取OKX多个交易对的资金费率数据
-app.get('/api/okx-funding-rates', async (req, res) => {
-    try {
-        const { symbols = '' } = req.query;
-        if (!symbols) {
-            return res.status(400).json({
-                success: false,
-                error: 'Symbols parameter is required'
-            });
-        }
-
-        const symbolList = symbols.split(',');
-        const results = {};
-
-        // 并行请求所有交易对的资金费率数据
-        await Promise.all(symbolList.map(async (symbol) => {
-            try {
-                // 将 BTC/USD:USDT 转换为 BTC-USDT-SWAP
-                const okxSymbol = symbol.replace('/USDT:USDT', '-USDT-SWAP');
-                const response = await axios.get('https://www.okx.com/api/v5/public/funding-rate', {
-                    params: {
-                        instId: okxSymbol
-                    }
-                });
-
-                if (response.data.code === '0' && response.data.data && response.data.data.length > 0) {
-                    const data = response.data.data[0];
-                    const fundingTime = parseInt(data.fundingTime);
-                    const nextFundingTime = parseInt(data.nextFundingTime);
-                    const fundingRateInterval = Math.floor((nextFundingTime - fundingTime) / 1000 / 60 / 60); // 转换为小时
-
-                    results[symbol] = {
-                        symbol: symbol,
-                        fundingRate: parseFloat(data.fundingRate),
-                        fundingTime: fundingTime,
-                        fundingRateInterval: fundingRateInterval,
-                        minFundingRate: parseFloat(data.minFundingRate),
-                        maxFundingRate: parseFloat(data.maxFundingRate)
-                    };
-                }
-            } catch (error) {
-                console.error(`Error fetching funding rate for ${symbol}:`, error);
-            }
-        }));
-
-        res.json({
-            success: true,
-            data: results
-        });
-    } catch (error) {
-        console.error('Error fetching OKX funding rates:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 启动服务器
+// 启动Express服务器
 app.listen(port, () => {
-    console.log(`Server is running at http://localhost:${port}`);
-}); 
+    console.log(`API server is running on http://localhost:${port}`);
+});
+
+// 每5秒运行一次主函数
+setInterval(main, 5000);
+
+// 每1分钟更新一次所有交易所的资金费率信息
+setInterval(fetchBybitFundingInfo, 60000);
+setInterval(fetchBitgetFundingInfo, 60000);
+setInterval(fetchOKXFundingInfo, 60000);
+setInterval(fetchBinanceFundingInfo, 60000);
+
+// 立即运行
+main().then(() => {
+    // main 执行完成后立即获取 Bitget 和 OKX 的资金费率信息
+    fetchBitgetFundingInfo();
+    fetchOKXFundingInfo();
+});
+
+// 立即获取其他交易所的资金费率信息
+fetchBybitFundingInfo();
+fetchBinanceFundingInfo();
