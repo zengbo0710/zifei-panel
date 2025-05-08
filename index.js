@@ -236,9 +236,9 @@ function filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers
         const bitgetFundingRate = opportunity.exchanges[0] === 'BITGET' ? 
             Math.abs(opportunity['A-FUNDINGRATE']) : 
             Math.abs(opportunity['B-FUNDINGRATE']);
-
+          
         // 交易量必须大于等于 100 万且资金费率绝对值大于等于 0.2%
-        if (bitgetVolume < 1000000 || bitgetFundingRate < 0.001) {
+        if (bitgetVolume < 1000000 || bitgetFundingRate < 0.001 ) {
             return false;
         }
     }
@@ -611,14 +611,14 @@ app.get('/api/kline', async (req, res) => {
             exchange = 'binance',
             symbol = 'BTC/USDT', 
             timeframe = '1m', 
-            limit = 100 
+            limit = 1000 
         } = req.query;
         
         // 创建交易所实例
         const exchangeInstance = createExchange(exchange);
         
         // 获取K线数据
-        const ohlcv = await exchangeInstance.fetchOHLCV(symbol, timeframe, undefined, limit);
+        const ohlcv = await exchangeInstance.fetchOHLCV(symbol, timeframe, undefined, 2000);
         
         // 格式化数据
         const klineData = ohlcv.map(item => ({
