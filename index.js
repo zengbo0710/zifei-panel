@@ -395,7 +395,20 @@ async function main() {
                 fundingRateB = binanceFundingMap[symbol].fundingRate || 0;
             }
 
-            // 在计算套利机会的地方修改调用方式
+            // 方向判断修正
+            let opportunityType = null;
+            let opportunityValue = null;
+            if (exchangeATicker.ask < exchangeBTicker.bid) {
+                opportunityType = "LASB";
+                opportunityValue = Math.abs(1 - LASB);
+            } else if (exchangeATicker.bid > exchangeBTicker.ask) {
+                opportunityType = "SALB";
+                opportunityValue = Math.abs(1 - SALB);
+            } else {
+                // 没有套利空间
+                return;
+            }
+
             const opportunity = {
                 symbol: symbol,
                 exchanges: [exchangeAPair, exchangeBPair],
@@ -407,9 +420,6 @@ async function main() {
 
             // 使用筛选函数
             if (filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers, bitgetTickers)) {
-                const opportunityType = LASB < SALB ? "LASB" : "SALB";
-                const opportunityValue = opportunityType === "LASB" ? Math.abs(1 - LASB) : Math.abs(1 - SALB);
-
                 const opportunityObj = {
                     "pair": "A-B",
                     "exchangeA": exchangeAPair,
