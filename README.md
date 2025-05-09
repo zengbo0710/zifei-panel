@@ -2,7 +2,8 @@
 ![效果图](./doc/image.png)
 
 本面板集合BINANCE、BITGET、BYBIT、OKX的资费数据和盘口价差，方便资费套利和价差发现。
-推荐使用 https://taoli.tools 进行交易
+本工具不涉及私钥，不涉及下单，仅作为行情聚合。
+第三方pacakge仅包含 axios,ccxt,express,cors。
 数据更新可能延迟，请注意交易所其他公告。
 
 
