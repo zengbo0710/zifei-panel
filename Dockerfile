@@ -8,10 +8,16 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Install dependencies with legacy peer deps to handle ccxt
-RUN npm install --legacy-peer-deps && \
+# Copy configuration files
+COPY public/ ./public/
+COPY tailwind.config.js postcss.config.js ./
+
+# Install all dependencies including development dependencies
+RUN npm install && \
+    npm install -D postcss-cli tailwindcss@latest postcss@latest autoprefixer@latest && \
     ls -la /app/node_modules/ccxt && \
-    npm list ccxt
+    npm list ccxt && \
+    npm run build:css
 
 # Then copy the rest of the application
 COPY . .
