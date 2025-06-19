@@ -97,10 +97,11 @@ const OpportunityCard = ({ opportunity }) => {
               )}
             </div>
             
-            {/* 差价百分比 */}
+            {/* 资金费率套利利润收益率 */}
             <div className="mt-2">
-              <span className="text-lg font-bold text-primary">
-                {(opportunity.opportunityValue * 100).toFixed(4)}%
+              <span className="text-sm text-secondary font-medium">资费套利利润：</span>
+              <span className="text-lg font-bold text-primary ml-1">
+                {fundingProfit.profitPerPeriod}
               </span>
             </div>
           </div>
@@ -144,29 +145,35 @@ const OpportunityCard = ({ opportunity }) => {
           </div>
         </div>
         
-        {/* 资金费率套利利润 */}
+        {/* 价差收益 */}
         <div className="mt-3 pt-3 border-t border-gray-100">
-          <span className="text-sm text-secondary font-medium">资金费率套利利润</span>
+          <span className="text-sm text-secondary font-medium">价差收益</span>
           <div className="mt-1">
             <p className="text-sm">
               <span className="font-medium">收益率:</span> 
-              <span className="text-primary font-medium ml-1">{fundingProfit.profitPerPeriod}</span>
+              <span className="text-primary font-medium ml-1">{(opportunity.opportunityValue * 100).toFixed(4)}%</span>
             </p>
           </div>
         </div>
         
-        {/* 下次资金费率时间 */}
+        {/* 下次资金费率时间 - 只要有数据就显示，不再要求两个交易所时间相同 */}
         <div className="mt-3">
           <span className="text-sm text-secondary">下次资金费率时间</span>
           <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
             <div className="mb-2 sm:mb-0">
               <p className="text-sm">
-                <span className="font-medium">{opportunity.exchangeA}:</span> <span className="text-xs sm:text-sm">{formatFundingTime(opportunity['A-FUNDINGTIME'])}</span>
+                <span className="font-medium">{opportunity.exchangeA}:</span> 
+                <span className="text-xs sm:text-sm">
+                  {opportunity['A-FUNDINGTIME'] ? formatFundingTime(opportunity['A-FUNDINGTIME']) : "暂无数据"}
+                </span>
               </p>
             </div>
             <div>
               <p className="text-sm">
-                <span className="font-medium">{opportunity.exchangeB}:</span> <span className="text-xs sm:text-sm">{formatFundingTime(opportunity['B-FUNDINGTIME'])}</span>
+                <span className="font-medium">{opportunity.exchangeB}:</span> 
+                <span className="text-xs sm:text-sm">
+                  {opportunity['B-FUNDINGTIME'] ? formatFundingTime(opportunity['B-FUNDINGTIME']) : "暂无数据"}
+                </span>
               </p>
             </div>
           </div>

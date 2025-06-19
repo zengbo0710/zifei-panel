@@ -27,6 +27,28 @@ export default function Home() {
     return 'funding-profit-period'; // 默认按每期资费套利利润排序
   });
   
+  // 获取上次使用的刷新时间间隔(如果存在)，否则默认为7秒
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    // 客户端渲染时从localStorage读取保存的刷新时间间隔
+    if (typeof window !== 'undefined') {
+      const savedInterval = localStorage.getItem('preferredRefreshInterval');
+      return savedInterval ? Number(savedInterval) : 7000;
+    }
+    return 7000; // 默认7秒刷新一次
+  });
+  
+  // 自定义处理刷新间隔变更的函数
+  const handleRefreshIntervalChange = (value) => {
+    console.log('首页设置刷新间隔:', value);
+    // 确保值是数字类型
+    const numValue = Number(value);
+    setRefreshInterval(numValue);
+    // 保存到localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('preferredRefreshInterval', numValue.toString());
+    }
+  };
+  
   // 页面控制状态
   const [page, setPage] = useState(1);
   const itemsPerPage = 15; // 每页显示15个卡片
@@ -51,23 +73,21 @@ export default function Home() {
     }
   };
   
-  // 首次加载和定期刷新
+  // 首次加载和定期刷新 - 响应refreshInterval变化
   useEffect(() => {
     // 首次加载数据
     fetchOpportunities();
     
-    // 从环境变量获取刷新间隔时间，默认30秒
-    const updateInterval = process.env.NEXT_PUBLIC_UPDATE_INTERVAL ? 
-      parseInt(process.env.NEXT_PUBLIC_UPDATE_INTERVAL) : 30000;
+    console.log(`设置刷新间隔: ${refreshInterval}ms`);
     
-    // 设置自动刷新
-    const refreshInterval = setInterval(() => {
+    // 设置自动刷新 - 使用用户选择的refreshInterval
+    const intervalTimer = setInterval(() => {
       fetchOpportunities();
-    }, updateInterval);
+    }, refreshInterval);
     
     // 清理定时器
-    return () => clearInterval(refreshInterval);
-  }, []);
+    return () => clearInterval(intervalTimer);
+  }, [refreshInterval]); // 依赖于refreshInterval，当其变化时重新设置定时器
   
   // 保存排序选择到localStorage
   useEffect(() => {
@@ -75,6 +95,13 @@ export default function Home() {
       localStorage.setItem('preferredSortType', sortType);
     }
   }, [sortType]);
+  
+  // 保存刷新时间间隔到localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('preferredRefreshInterval', refreshInterval.toString());
+    }
+  }, [refreshInterval]);
 
   // 筛选和排序数据
   useEffect(() => {
@@ -233,6 +260,8 @@ export default function Home() {
           setExchangeB={setExchangeB}
           sortType={sortType}
           setSortType={setSortType}
+          refreshInterval={refreshInterval}
+          setRefreshInterval={handleRefreshIntervalChange}
           lastUpdate={lastUpdate}
         />
         
