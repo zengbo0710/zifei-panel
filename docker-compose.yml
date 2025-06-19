@@ -9,9 +9,10 @@ services:
       - "3100:3000"  # 将主机的3100端口映射到容器的3000端口
     environment:
       - NODE_ENV=production
-    volumes:
-      - ./server:/app/server  # 挂载服务端代码，便于开发时热更新
-      - ./index.js:/app/index.js
+    # 在生产环境部署时不使用卷挂载
+    # volumes:
+    #   - ./server:/app/server
+    #   - ./index.js:/app/index.js
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/status"]
