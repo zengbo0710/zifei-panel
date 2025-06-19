@@ -39,24 +39,11 @@ const OpportunityCard = ({ opportunity }) => {
     // 计算资金费率差值的绝对值
     const fundingRateDiff = Math.abs(fundingRateA - fundingRateB);
     
-    // 考虑资金费率周期差异进行标准化
-    const periodA = opportunity['A-FUNDINGPERIOD'] || 8; // 默认8小时
-    const periodB = opportunity['B-FUNDINGPERIOD'] || 8; // 默认8小时
-    
-    // 将两个交易所的资金费率标准化到同一周期（24小时）
-    const normalizedRateA = (fundingRateA * 24) / periodA;
-    const normalizedRateB = (fundingRateB * 24) / periodB;
-    
-    // 计算标准化后的资金费率差值（24小时周期的差值）
-    const normalizedDiff = Math.abs(normalizedRateA - normalizedRateB);
-    
-    // 返回每个周期的利润和24小时标准化利润
+    // 返回每个周期的利润（按用户要求移除24小时计算）
     return {
       rawDiff: fundingRateDiff,
-      normalizedDiff: normalizedDiff,
       // 单位为百分比
-      profitPerPeriod: (fundingRateDiff * 100).toFixed(4) + '%',
-      profitPer24h: (normalizedDiff * 100).toFixed(4) + '%'
+      profitPerPeriod: (fundingRateDiff * 100).toFixed(4) + '%'
     };
   };
   
@@ -160,19 +147,11 @@ const OpportunityCard = ({ opportunity }) => {
         {/* 资金费率套利利润 */}
         <div className="mt-3 pt-3 border-t border-gray-100">
           <span className="text-sm text-secondary font-medium">资金费率套利利润</span>
-          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
-            <div className="mb-2 sm:mb-0">
-              <p className="text-sm">
-                <span className="font-medium">每次结算:</span> 
-                <span className="text-primary font-medium ml-1">{fundingProfit.profitPerPeriod}</span>
-              </p>
-            </div>
-            <div>
-              <p className="text-sm">
-                <span className="font-medium">24小时收益:</span> 
-                <span className="text-primary font-medium ml-1">{fundingProfit.profitPer24h}</span>
-              </p>
-            </div>
+          <div className="mt-1">
+            <p className="text-sm">
+              <span className="font-medium">收益率:</span> 
+              <span className="text-primary font-medium ml-1">{fundingProfit.profitPerPeriod}</span>
+            </p>
           </div>
         </div>
         

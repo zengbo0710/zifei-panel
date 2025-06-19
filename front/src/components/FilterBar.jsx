@@ -64,12 +64,12 @@ const FilterBar = ({
     { value: 'BITGET', label: 'Bitget' },
   ];
 
-  // 排序类型选项
+  // 排序类型选项 - 移除24小时收益选项
   const sortOptions = [
+    { value: 'funding-profit-period', label: '资费套利利润' },
     { value: 'price-diff', label: '价差绝对值' },
     { value: 'funding-abs', label: '资费绝对值' },
     { value: 'funding-diff', label: '资费差值' },
-    { value: 'funding-profit', label: '资费套利利润' },
     { value: 'symbol', label: '交易对名称' },
   ];
 

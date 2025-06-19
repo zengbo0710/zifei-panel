@@ -17,14 +17,14 @@ export default function Home() {
   // 筛选条件状态
   const [exchangeA, setExchangeA] = useState(null);
   const [exchangeB, setExchangeB] = useState(null);
-  // 获取上次使用的排序选项(如果存在)，否则默认为资费套利利润
+  // 获取上次使用的排序选项(如果存在)，否则默认为每期资费套利利润
   const [sortType, setSortType] = useState(() => {
     // 客户端渲染时从localStorage读取保存的排序选项
     if (typeof window !== 'undefined') {
       const savedSortType = localStorage.getItem('preferredSortType');
-      return savedSortType || 'funding-profit';
+      return savedSortType || 'funding-profit-period';
     }
-    return 'funding-profit'; // 默认按资费套利利润排序
+    return 'funding-profit-period'; // 默认按每期资费套利利润排序
   });
   
   // 页面控制状态
@@ -95,49 +95,103 @@ export default function Home() {
     // 应用排序逻辑
     if (sortType === 'price-diff') {
       // 按价差绝对值排序（从大到小）
-      filtered.sort((a, b) => b.opportunityValue - a.opportunityValue);
+      filtered.sort((a, b) => {
+        // 确保使用数值比较
+        const aValue = parseFloat(a.opportunityValue) || 0;
+        const bValue = parseFloat(b.opportunityValue) || 0;
+        return bValue - aValue;
+      });
     } else if (sortType === 'funding-abs') {
       // 按资费绝对值排序（从大到小）
       filtered.sort((a, b) => {
-        // 计算资费率绝对值之和
-        const aFundingAbs = Math.abs(a['A-FUNDINGRATE'] || 0) + Math.abs(a['B-FUNDINGRATE'] || 0);
-        const bFundingAbs = Math.abs(b['A-FUNDINGRATE'] || 0) + Math.abs(b['B-FUNDINGRATE'] || 0);
-        return bFundingAbs - aFundingAbs;
+        try {
+          // 转换为数值并计算资费率绝对值之和
+          const aRateA = parseFloat(a['A-FUNDINGRATE']) || 0;
+          const aRateB = parseFloat(a['B-FUNDINGRATE']) || 0;
+          const aFundingAbs = Math.abs(aRateA) + Math.abs(aRateB);
+          
+          const bRateA = parseFloat(b['A-FUNDINGRATE']) || 0;
+          const bRateB = parseFloat(b['B-FUNDINGRATE']) || 0;
+          const bFundingAbs = Math.abs(bRateA) + Math.abs(bRateB);
+          
+          return bFundingAbs - aFundingAbs;
+        } catch (err) {
+          console.error("资费绝对值排序出错:", err);
+          return 0;
+        }
       });
     } else if (sortType === 'funding-diff') {
       // 按资费差值排序（从大到小）
       filtered.sort((a, b) => {
-        // 计算资费率差值的绝对值
-        const aFundingDiff = Math.abs((a['A-FUNDINGRATE'] || 0) - (a['B-FUNDINGRATE'] || 0));
-        const bFundingDiff = Math.abs((b['A-FUNDINGRATE'] || 0) - (b['B-FUNDINGRATE'] || 0));
-        return bFundingDiff - aFundingDiff;
+        try {
+          // 转换为数值并计算差值
+          const aRateA = parseFloat(a['A-FUNDINGRATE']) || 0;
+          const aRateB = parseFloat(a['B-FUNDINGRATE']) || 0;
+          const aFundingDiff = Math.abs(aRateA - aRateB);
+          
+          const bRateA = parseFloat(b['A-FUNDINGRATE']) || 0;
+          const bRateB = parseFloat(b['B-FUNDINGRATE']) || 0;
+          const bFundingDiff = Math.abs(bRateA - bRateB);
+          
+          return bFundingDiff - aFundingDiff;
+        } catch (err) {
+          console.error("资费差值排序出错:", err);
+          return 0;
+        }
       });
-    } else if (sortType === 'funding-profit') {
-      // 按资费套利利润排序（从大到小，考虑周期标准化）
-      filtered.sort((a, b) => {
-        // 计算A交易所的标准化资金费率（24小时）
-        const aPeriodA = a['A-FUNDINGPERIOD'] || 8;
-        const aNormalizedRateA = ((a['A-FUNDINGRATE'] || 0) * 24) / aPeriodA;
+    } else if (sortType === 'funding-profit-period') {
+      try {
+        // 创建一个单独的排序函数，确保强类型比较
+        const getFundingDiff = (item) => {
+          // 严格处理资金费率，确保是数值类型
+          let rateA = 0, rateB = 0;
+          
+          // 处理各种可能的格式：字符串、数字、百分比、null、undefined
+          if (typeof item['A-FUNDINGRATE'] === 'string') {
+            rateA = parseFloat(item['A-FUNDINGRATE'].replace('%', '')) || 0;
+          } else if (typeof item['A-FUNDINGRATE'] === 'number') {
+            rateA = item['A-FUNDINGRATE'];
+          }
+          
+          if (typeof item['B-FUNDINGRATE'] === 'string') {
+            rateB = parseFloat(item['B-FUNDINGRATE'].replace('%', '')) || 0;
+          } else if (typeof item['B-FUNDINGRATE'] === 'number') {
+            rateB = item['B-FUNDINGRATE'];
+          }
+          
+          // 计算绝对差值并返回
+          return Math.abs(rateA - rateB);
+        };
         
-        // 计算B交易所的标准化资金费率（24小时）
-        const aPeriodB = a['B-FUNDINGPERIOD'] || 8;
-        const aNormalizedRateB = ((a['B-FUNDINGRATE'] || 0) * 24) / aPeriodB;
+        // 创建临时存储用于比较的数组
+        const itemsWithDiff = filtered.map(item => ({
+          ...item,
+          _fundingDiff: getFundingDiff(item)
+        }));
         
-        // 计算A的标准化资金费率差值（24小时）
-        const aNormalizedDiff = Math.abs(aNormalizedRateA - aNormalizedRateB);
+        // 输出数据集大小
+        console.log(`开始资金费率套利利润排序，数据项数：${itemsWithDiff.length}`);
         
-        // 对B做同样的计算
-        const bPeriodA = b['A-FUNDINGPERIOD'] || 8;
-        const bNormalizedRateA = ((b['A-FUNDINGRATE'] || 0) * 24) / bPeriodA;
+        // 按资金费率差值排序
+        itemsWithDiff.sort((a, b) => {
+          if (a._fundingDiff > b._fundingDiff) return -1;
+          if (a._fundingDiff < b._fundingDiff) return 1;
+          return 0;
+        });
         
-        const bPeriodB = b['B-FUNDINGPERIOD'] || 8;
-        const bNormalizedRateB = ((b['B-FUNDINGRATE'] || 0) * 24) / bPeriodB;
+        // 输出排序前20项用于验证，查看按百分比从大到小是否正确
+        console.log("排序后前20项资金费率套利利润:");
+        for (let i = 0; i < Math.min(20, itemsWithDiff.length); i++) {
+          const item = itemsWithDiff[i];
+          console.log(`${i+1}. ${item.symbol}: ${(item._fundingDiff*100).toFixed(4)}%`);
+        }
         
-        const bNormalizedDiff = Math.abs(bNormalizedRateA - bNormalizedRateB);
-        
-        // 按24小时标准化后的资金费率差值从大到小排序
-        return bNormalizedDiff - aNormalizedDiff;
-      });
+        // 修正UI显示，确保正确反映排序结果
+        filtered = itemsWithDiff;
+      } catch (err) {
+        console.error("资金费率套利利润排序出错:", err);
+      }
+    // 移除24小时资金费率套利利润排序逻辑，按用户要求仅保留当前周期排序
     } else if (sortType === 'symbol') {
       // 按交易对名称字母排序
       filtered.sort((a, b) => a.symbol.localeCompare(b.symbol));
