@@ -17,7 +17,15 @@ export default function Home() {
   // 筛选条件状态
   const [exchangeA, setExchangeA] = useState(null);
   const [exchangeB, setExchangeB] = useState(null);
-  const [sortType, setSortType] = useState('price-diff'); // 默认按价差绝对值排序
+  // 获取上次使用的排序选项(如果存在)，否则默认为资费套利利润
+  const [sortType, setSortType] = useState(() => {
+    // 客户端渲染时从localStorage读取保存的排序选项
+    if (typeof window !== 'undefined') {
+      const savedSortType = localStorage.getItem('preferredSortType');
+      return savedSortType || 'funding-profit';
+    }
+    return 'funding-profit'; // 默认按资费套利利润排序
+  });
   
   // 页面控制状态
   const [page, setPage] = useState(1);
@@ -61,6 +69,13 @@ export default function Home() {
     return () => clearInterval(refreshInterval);
   }, []);
   
+  // 保存排序选择到localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('preferredSortType', sortType);
+    }
+  }, [sortType]);
+
   // 筛选和排序数据
   useEffect(() => {
     let filtered = [...opportunities];
