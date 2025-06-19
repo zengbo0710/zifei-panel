@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: ./Dockerfile
     ports:
-      - "3000:3000"  # 将主机的3000端口映射到容器的3000端口
+      - "3100:3000"  # 将主机的3100端口映射到容器的3000端口
     environment:
       - NODE_ENV=production
     volumes:

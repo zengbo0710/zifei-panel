@@ -145,8 +145,8 @@ chmod +x deploy.sh
 ```
 
 部署成功后可通过以下地址访问：
-- 前端UI和后端API: http://localhost:3000
-- API接口: http://localhost:3000/api
+- 前端UI和后端API: http://localhost:3100
+- API接口: http://localhost:3100/api
 
 ### 手动部署
 
@@ -201,12 +201,12 @@ npm run dev
 ## 环境变量
 
 ### 后端环境变量
-- `PORT` - 服务器端口（默认3000）
+- `PORT` - 服务器端口（默认3100）
 - `NODE_ENV` - 环境模式（development/production）
 - `CORS_ORIGIN` - CORS源配置
 
 ### 前端环境变量
-- `NEXT_PUBLIC_API_URL` - API地址（默认http://localhost:3000/api）
+- `NEXT_PUBLIC_API_URL` - API地址（默认http://localhost:3100/api）
 - `NEXT_PUBLIC_UPDATE_INTERVAL` - 数据刷新间隔（毫秒）
 
 ## 项目维护
