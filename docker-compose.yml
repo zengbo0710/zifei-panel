@@ -1,19 +1,21 @@
-version: '3.8'
-
 services:
-  zifei-panel:
+  # 单一应用服务 - 集成前端和后端
+  app:
+    image: zifei-panel:latest
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: zifei-panel
-    restart: unless-stopped
+      dockerfile: ./Dockerfile
     ports:
-      - "3010:3000"
+      - "3000:3000"  # 将主机的3000端口映射到容器的3000端口
     environment:
       - NODE_ENV=production
-    # Removing volume mount temporarily for debugging
+    volumes:
+      - ./server:/app/server  # 挂载服务端代码，便于开发时热更新
+      - ./index.js:/app/index.js
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/status"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
+      start_period: 10s

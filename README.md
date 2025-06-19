@@ -1,176 +1,236 @@
-# fuding-panel
-![效果图](./doc/image.png)
+# 套利机会监控面板
 
-本面板集合BINANCE、BITGET、BYBIT、OKX的资费数据和盘口价差，方便资费套利和价差发现。
-本工具不涉及私钥，不涉及下单，仅作为行情聚合。
-第三方pacakge仅包含 axios,ccxt,express,cors。
-数据更新可能延迟，请注意交易所其他公告。
+## 项目概述
 
+套利机会监控面板是一个用于实时监控不同交易所间的套利机会、价格差异和资金费率的完整系统。该项目包含后端服务（Node.js）和前端UI（Next.js），支持通过Docker一键部署整个应用。
 
-## 04/27更新：
-1. 将数据完全交给服务器缓存订阅，提升速度10倍以上
-2. 支持两个交易所直接直接对比价差显示，价差及时性提高
-3. 支持价差排序，方便价格套利交易发现路径
-4. 币种筛选交给服务器规则，客户端更轻量(默认BITGET 交易量1M，资费绝对值0.1%)
+## 项目结构
 
-## 初次发布
-1. 使用本服务只需要一个费用极低甚至免费的海外服务器（1核1G就够了）
-2. 解决其他产品上部分交易所无法同时完整显示：
-   - 下次资费时间
-   - 下次资费比例
-   - 结算周期问题
-3. 优化了流量占用，交给服务端后，大家可以共享使用
-4. 解决其他面板前端订阅模式导致的交易所数据掉了不更新问题
-5. 客户端不在需要挂梯子
+```
+zifei-panel/
+├── docker/                    # Docker配置目录
+│   ├── server.Dockerfile      # 后端Docker配置
+│   └── frontend.Dockerfile    # 前端Docker配置
+├── front/                     # 前端项目目录
+│   ├── src/                   # 前端源码
+│   ├── public/                # 静态资源
+│   ├── .env.local             # 环境配置
+│   └── README.md              # 前端文档
+├── server/                    # 后端模块化代码
+│   ├── api/                   # API路由
+│   ├── config/                # 配置文件
+│   ├── services/              # 业务逻辑服务
+│   └── README.md              # 后端API文档
+├── plan/                      # 项目计划文档
+│   └── plan202506192135.md    # 开发计划
+├── index.js                   # 应用入口点
+├── package.json               # 项目依赖
+├── docker-compose.yml         # Docker Compose配置
+├── deploy.sh                  # 一键部署脚本
+└── README.md                  # 项目说明文档
+```
 
-界面上借鉴了taoli.live
+## 技术栈
 
-## 安装
+### 后端
+- Node.js
+- Express
+- CCXT (加密货币交易库)
+- Axios
+
+### 前端
+- Next.js
+- React.js
+- Tailwind CSS
+- Axios
+
+### 部署
+- Docker
+- Docker Compose
+- Coolify 支持
+
+## 功能特性
+
+- 实时监控多个交易所的价格数据
+- 自动计算并显示套利机会
+- 获取并显示资金费率信息
+- 支持按交易所和交易对筛选
+- 支持多种排序方式：价差绝对值、资费绝对值、资费差值和资费套利利润
+- 响应式设计，适配桌面和移动设备
+- 实时数据自动刷新
+
+## 计算方法
+
+### 价差计算
+- 价差绝对值 = |交易所A价格与交易所B价格的比率 - 1|
+- 例如：如果交易所A价格为100，交易所B价格为105，则价差为|(100/105) - 1| = 0.0476 (4.76%)
+
+### 资费差值计算
+- 原始资费差值 = |交易所A资金费率 - 交易所B资金费率|
+- 标准化资费差值（24小时） = |(交易所A资金费率 * 24/周期A) - (交易所B资金费率 * 24/周期B)|
+- 例如：如果交易所A资金费率为0.01%（8小时周期），交易所B资金费率为-0.02%（8小时周期），则：
+  - 原始资费差值 = |0.01% - (-0.02%)| = 0.03%
+  - 标准化资费差值（24小时） = |(0.01% * 24/8) - (-0.02% * 24/8)| = |0.03% - (-0.06%)| = 0.09%
+
+### 资费套利利润计算
+
+#### 基本计算原理
+- **每次结算利润**：资金费率差值的绝对值（以百分比表示）
+- **24小时标准化利润**：标准化到24小时周期的资金费率差值绝对值（以百分比表示）
+- 基于两个交易所间做多做空对冲头寸时，仅考虑资金费率因素可获得的利润
+
+#### 资金费率套利方法详解
+
+资金费率套利是利用不同交易所之间的资金费率差异获利的策略。通过在资金费率为正的交易所做空，在资金费率为负的交易所做多，可以在每个资金费率结算周期获得利润。
+
+**套利步骤**：
+1. 找出同一交易对在不同交易所的资金费率差异
+2. 在资金费率为正（支付方）的交易所做空
+3. 在资金费率为负（收取方）的交易所做多
+4. 持有头寸直到资金费率结算，获得资金费率差值作为利润
+5. 可以继续持有至下次结算，或者平仓退出
+
+**计算公式**：
+- 单次结算利润% = |交易所A资金费率 - 交易所B资金费率|
+- 标准化24小时利润% = |（交易所A资金费率 × 24/周期A）- （交易所B资金费率 × 24/周期B）|
+
+#### 资金费率套利示例
+
+**示例1：相同结算周期**
+
+假设BTC/USDT交易对：
+- Binance资金费率：+0.01%（每8小时结算，正值表示多方支付给空方）
+- OKX资金费率：-0.025%（每8小时结算，负值表示空方支付给多方）
+
+套利操作：
+- 在Binance做空BTC/USDT：结算时收取0.01%资金费
+- 在OKX做多BTC/USDT：结算时收取0.025%资金费
+- 单次结算总利润：0.01% + 0.025% = 0.035%
+- 24小时标准化利润：0.035% × (24/8) = 0.105%
+
+**示例2：不同结算周期**
+
+假设ETH/USDT交易对：
+- Bybit资金费率：+0.02%（每8小时结算）
+- Bitget资金费率：-0.01%（每4小时结算）
+
+套利操作：
+- 在Bybit做空ETH/USDT：每8小时收取0.02%资金费
+- 在Bitget做多ETH/USDT：每4小时收取0.01%资金费（8小时内收取两次）
+- 8小时周期内总利润：0.02% + (0.01% × 2) = 0.04%
+- 24小时标准化利润：0.04% × (24/8) = 0.12%
+
+**风险提示**：
+- 资金费率套利虽然可以获得稳定收益，但需要考虑交易手续费和价格波动风险
+- 建议使用配对对冲头寸，维持delta中性，降低价格波动风险
+- 资金费率可能随市场情况变化，需要定期检查并调整策略
+
+## 安装与部署
+
+### 前提条件
+- 安装 Docker 和 Docker Compose
+- Node.js 16+ (本地开发)
+- NPM 7+ (本地开发)
+
+### 一键部署（推荐）
+
+使用提供的脚本一键部署前后端服务：
 
 ```bash
+# 添加执行权限
+chmod +x deploy.sh
+
+# 运行部署脚本
+./deploy.sh
+```
+
+部署成功后可通过以下地址访问：
+- 前端UI和后端API: http://localhost:3000
+- API接口: http://localhost:3000/api
+
+### 手动部署
+
+也可以使用Docker Compose手动部署：
+
+```bash
+# 构建和启动所有服务
+docker-compose up -d --build
+
+# 仅启动后端
+docker-compose up -d server
+
+# 仅启动前端
+docker-compose up -d frontend
+```
+
+### 本地开发
+
+分别启动后端和前端服务：
+
+```bash
+# 后端服务
 npm install
+npm run dev  # 使用nodemon启动
+
+# 前端服务
+cd front
+npm install
+npm run dev
 ```
 
-## 运行
+## API文档
 
+详细的API文档请参考 [服务器API文档](server/README.md)。
+
+主要端点包括：
+- `GET /api/opportunities` - 获取所有套利机会
+- `GET /api/opportunities/:symbol` - 获取特定交易对的套利机会
+- `GET /api/status` - 获取系统状态和资金费率信息
+- `GET /api/kline/:exchange/:symbol` - 获取K线图数据
+
+## 部署到Coolify
+
+本项目支持在Coolify平台上部署：
+
+1. 在Coolify中创建新应用
+2. 指向此仓库地址
+3. 选择`docker-compose.yml`文件作为部署配置
+4. 设置环境变量
+5. 部署应用
+
+## 环境变量
+
+### 后端环境变量
+- `PORT` - 服务器端口（默认3000）
+- `NODE_ENV` - 环境模式（development/production）
+- `CORS_ORIGIN` - CORS源配置
+
+### 前端环境变量
+- `NEXT_PUBLIC_API_URL` - API地址（默认http://localhost:3000/api）
+- `NEXT_PUBLIC_UPDATE_INTERVAL` - 数据刷新间隔（毫秒）
+
+## 项目维护
+
+### 日志查看
 ```bash
-npm start
+# 查看所有服务日志
+docker-compose logs -f
+
+# 查看特定服务日志
+docker-compose logs -f server
+docker-compose logs -f frontend
 ```
 
-服务器将在 [http://localhost:3000](http://localhost:3000) 启动。
-
-## 跨域支持
-
-API服务已配置跨域资源共享(CORS)，支持以下特性：
-
-- 允许所有域名访问（可通过配置修改为指定域名）
-- 支持 GET、POST、OPTIONS 请求方法
-- 允许自定义请求头和响应头
-- 支持发送cookies
-- 预检请求缓存时间为24小时
-
-## 支持的交易所
-
-API服务支持以下交易所（不区分大小写）：
-
-| 交易所 | 支持的ID |
-|--------|----------|
-| Binance | binance |
-| OKX | okx, okex |
-| Bitget | bitget |
-| Bybit | bybit |
-
-## API 接口
-
-### 获取永续合约交易对数据
-
-```
-GET /api/swap-tickers?exchange=binance
+### 更新部署
+```bash
+# 拉取最新代码并重新部署
+git pull
+./deploy.sh
 ```
 
-参数：
-- `exchange`: 交易所名称（不区分大小写）
+## 注意事项
 
-返回示例：
-```json
-{
-    "success": true,
-    "data": {
-        "BTC/USDT:USDT": {
-            "symbol": "BTC/USDT:USDT",
-            "last": 16597.00,
-            "bid": 16596.00,
-            "ask": 16597.50,
-            "high": 30912.50,
-            "low": 15700.00,
-            "volume": 49337318,
-            "timestamp": 1672376496682,
-            "fundingRate": -0.001034,
-            "fundingTime": 1672387200000,
-            "fundingRateInterval": 8
-        }
-    }
-}
-```
-
-### 获取资金费率数据
-
-```
-GET /api/funding-rates?exchange=binance
-```
-
-参数：
-- `exchange`: 交易所名称（不区分大小写）
-
-返回示例：
-```json
-{
-    "success": true,
-    "data": {
-        "BTC/USDT:USDT": {
-            "symbol": "BTC/USDT:USDT",
-            "fundingRate": -0.001034,
-            "fundingTime": 1672387200000,
-            "fundingRateInterval": 8
-        }
-    }
-}
-```
-
-### 获取K线数据
-
-```
-GET /api/kline?exchange=binance&symbol=BTC/USDT:USDT&timeframe=1m&limit=100
-```
-
-参数：
-- `exchange`: 交易所名称（不区分大小写）
-- `symbol`: 交易对
-- `timeframe`: K线周期（1m, 5m, 15m, 1h, 4h, 1d）
-- `limit`: 返回的K线数量
-
-返回示例：
-```json
-{
-    "success": true,
-    "data": [
-        {
-            "timestamp": 1672376400000,
-            "open": 16597.00,
-            "high": 16598.00,
-            "low": 16596.00,
-            "close": 16597.50,
-            "volume": 100.00
-        }
-    ]
-}
-```
-
-### 获取订单簿数据
-
-```
-GET /api/orderbook?exchange=binance&symbol=BTC/USDT:USDT&limit=20
-```
-
-参数：
-- `exchange`: 交易所名称（不区分大小写）
-- `symbol`: 交易对
-- `limit`: 返回的深度数量
-
-返回示例：
-```json
-{
-    "success": true,
-    "data": {
-        "bids": [
-            [16596.00, 1.00],
-            [16595.00, 2.00]
-        ],
-        "asks": [
-            [16597.00, 1.00],
-            [16598.00, 2.00]
-        ]
-    }
-}
-```
-
+- 确保Docker和Docker Compose已正确安装
+- 前端和后端服务需使用不同端口
+- 生产环境部署需配置正确的API URL
+- 请定期检查CCXT库更新以支持最新的交易所API
