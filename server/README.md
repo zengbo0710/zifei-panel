@@ -1,6 +1,6 @@
 # 服务器API文档
 
-本文档详细说明了服务器提供的所有API端点、参数和返回格式。所有API路由都是基于`/api`前缀。
+本文档详细说明了服务器提供的所有API端点、参数和返回格式，以及可供直接调用的内部函数API。所有HTTP API路由都是基于`/api`前缀。
 
 ## API端点列表
 
@@ -38,7 +38,12 @@
           "A-FUNDINGPERIOD": 8,
           "B-FUNDINGRATE": 0.0000719118012741,
           "B-FUNDINGTIME": 1750348800000,
-          "B-FUNDINGPERIOD": 8
+          "B-FUNDINGPERIOD": 8,
+          "fundingProfit": {
+            "rawDiff": 0.0000706118012741,
+            "rawProfit": 0.0000706118012741,
+            "profitPerPeriod": "0.0071"
+          }
         },
         // ... 更多套利机会
       ],
@@ -62,7 +67,35 @@
     "success": true,
     "data": {
       "opportunities": [
-        // 特定交易对的套利机会
+        {
+          "pair": "A-B",
+          "exchangeA": "BINANCE",
+          "exchangeB": "OKX",
+          "symbol": "BTC/USDT:USDT",
+          "A-ASK": 104594.8,
+          "A-BID": 104594.8,
+          "A-LAST": 104594.8,
+          "B-ASK": 104614.3,
+          "B-BID": 104614.2,
+          "B-LAST": 104614.3,
+          "LASB": 0.999814556723657,
+          "SALB": 0.9998136010086576,
+          "timestamp": "2025-06-19T13:21:51.666Z",
+          "opportunity": "LASB",
+          "opportunityValue": 0.00018544327634295588,
+          "A-FUNDINGRATE": 0.0000013,
+          "A-FUNDINGTIME": 1750348800000,
+          "A-FUNDINGPERIOD": 8,
+          "B-FUNDINGRATE": 0.0000719118012741,
+          "B-FUNDINGTIME": 1750348800000,
+          "B-FUNDINGPERIOD": 8,
+          "fundingProfit": {
+            "rawDiff": 0.0000706118012741,
+            "rawProfit": 0.0000706118012741,
+            "profitPerPeriod": "0.0071"
+          }
+        }
+        // 可能有多个特定交易对的套利机会
       ],
       "lastUpdate": "2025-06-19T13:21:51.667Z",
       "count": 3
@@ -84,7 +117,35 @@
     "success": true,
     "data": {
       "opportunities": [
-        // 特定交易所组合的套利机会
+        {
+          "pair": "A-B",
+          "exchangeA": "BINANCE",
+          "exchangeB": "OKX",
+          "symbol": "BTC/USDT:USDT",
+          "A-ASK": 104594.8,
+          "A-BID": 104594.8,
+          "A-LAST": 104594.8,
+          "B-ASK": 104614.3,
+          "B-BID": 104614.2,
+          "B-LAST": 104614.3,
+          "LASB": 0.999814556723657,
+          "SALB": 0.9998136010086576,
+          "timestamp": "2025-06-19T13:21:51.666Z",
+          "opportunity": "LASB",
+          "opportunityValue": 0.00018544327634295588,
+          "A-FUNDINGRATE": 0.0000013,
+          "A-FUNDINGTIME": 1750348800000,
+          "A-FUNDINGPERIOD": 8,
+          "B-FUNDINGRATE": 0.0000719118012741,
+          "B-FUNDINGTIME": 1750348800000,
+          "B-FUNDINGPERIOD": 8,
+          "fundingProfit": {
+            "rawDiff": 0.0000706118012741,
+            "rawProfit": 0.0000706118012741,
+            "profitPerPeriod": "0.0071"
+          }
+        },
+        // ... 更多特定交易所组合的套利机会
       ],
       "lastUpdate": "2025-06-19T13:21:51.667Z",
       "count": 145
@@ -184,6 +245,10 @@
 - `B-FUNDINGRATE`: 交易所B的资金费率
 - `B-FUNDINGTIME`: 交易所B的下次资金费率时间（时间戳）
 - `B-FUNDINGPERIOD`: 交易所B的资金费率周期（小时）
+- `fundingProfit`: 资金费率套利利润数据对象，包含以下属性：
+  - `rawDiff`: 资金费率差值的绝对值（原始小数格式）
+  - `rawProfit`: 资金费率套利利润（原始小数格式，与rawDiff相同）
+  - `profitPerPeriod`: 每期利润百分比（格式化为百分比字符串，四位小数）
 
 ### 套利机会筛选逻辑
 
@@ -197,9 +262,74 @@
    - LASB：当A-ASK < B-BID时，表示买A卖B有套利空间
    - SALB：当A-BID > B-ASK时，表示卖A买B有套利空间
 
-3. 结果按照套利价值（价差绝对值）从高到低排序
+3. 结果默认按照资费套利利润（fundingProfit.rawProfit）从高到低排序（原先按照价差绝对值排序）
 
 ## 更新频率
 
 - 套利机会数据每5秒更新一次
 - 资金费率数据每1分钟更新一次
+
+## 内部函数API
+
+除了HTTP API外，系统还提供了以下可直接在代码中调用的函数API，无需发起HTTP请求：
+
+### getTopFundingProfitOpportunities
+
+此函数返回按照资费套利利润排序的前5个交易机会。默认UI排序方式也已调整为资费套利利润。
+
+**导入方式**：
+```javascript
+const { getTopFundingProfitOpportunities } = require('../services/arbitrageService');
+```
+
+**参数**：无需参数
+
+**返回值**：
+```javascript
+{
+  success: true,
+  data: {
+    opportunities: [
+      {
+        "pair": "A-B",
+        "exchangeA": "BINANCE",
+        "exchangeB": "OKX",
+        "symbol": "BTC/USDT:USDT",
+        "A-ASK": 104594.8,
+        "A-BID": 104594.8,
+        "A-LAST": 104594.8,
+        "B-ASK": 104614.3,
+        "B-BID": 104614.2,
+        "B-LAST": 104614.3,
+        "LASB": 0.999814556723657,
+        "SALB": 0.9998136010086576,
+        "timestamp": "2025-06-20T15:16:04.123Z",
+        "opportunity": "LASB",
+        "opportunityValue": 0.00018544327634295588,
+        "A-FUNDINGRATE": 0.0000013,
+        "A-FUNDINGTIME": 1750348800000,
+        "A-FUNDINGPERIOD": 8,
+        "B-FUNDINGRATE": 0.0000719118012741,
+        "B-FUNDINGTIME": 1750348800000,
+        "B-FUNDINGPERIOD": 8,
+        "fundingProfit": {
+          "rawDiff": 0.0000706118012741,
+          "rawProfit": 0.0000706118012741,
+          "profitPerPeriod": "0.0071"
+        }
+      },
+      // ...更多交易机会（最多5个，按资费套利利润排序）
+    ],
+    lastUpdate: "2025-06-20T15:16:04.123Z",
+    count: 5
+  }
+}
+```
+
+**排序逻辑**：
+- 函数内部使用`fundingProfit.rawProfit`字段进行降序排序
+- 只返回排名前5的记录
+
+**使用场景**：
+- 直接在代码中获取资费套利利润最高的几个机会，无需重复调用API和在前端进行排序
+- 提高应用性能，减少不必要的数据传输

@@ -31,24 +31,12 @@ const OpportunityCard = ({ opportunity }) => {
     return <span>{percentage}</span>;
   };
   
-  // 计算资金费率套利利润百分比
-  const calculateFundingProfit = () => {
-    const fundingRateA = opportunity['A-FUNDINGRATE'] || 0;
-    const fundingRateB = opportunity['B-FUNDINGRATE'] || 0;
-    
-    // 计算资金费率差值的绝对值
-    const fundingRateDiff = Math.abs(fundingRateA - fundingRateB);
-    
-    // 返回每个周期的利润（按用户要求移除24小时计算）
-    return {
-      rawDiff: fundingRateDiff,
-      // 单位为百分比
-      profitPerPeriod: (fundingRateDiff * 100).toFixed(4) + '%'
-    };
+  // 获取资金费率套利利润数据
+  // 如果后端已提供fundingProfit数据就使用后端数据，否则使用兼容性处理（防止老版本API）
+  const fundingProfit = opportunity.fundingProfit || {
+    rawDiff: Math.abs((opportunity['A-FUNDINGRATE'] || 0) - (opportunity['B-FUNDINGRATE'] || 0)),
+    profitPerPeriod: (Math.abs((opportunity['A-FUNDINGRATE'] || 0) - (opportunity['B-FUNDINGRATE'] || 0)) * 100).toFixed(4)
   };
-  
-  // 获取资金费率利润数据
-  const fundingProfit = calculateFundingProfit();
 
   return (
     <div className="bg-white border border-border rounded-md overflow-hidden mb-4">
@@ -78,20 +66,20 @@ const OpportunityCard = ({ opportunity }) => {
             <div className="mt-1 flex items-center">
               {isLongAShortB ? (
                 <>
-                  <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium mr-2">
-                    做空{opportunity.exchangeA}
-                  </span>
-                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
-                    做多{opportunity.exchangeB}
-                  </span>
-                </>
-              ) : (
-                <>
                   <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium mr-2">
                     做多{opportunity.exchangeA}
                   </span>
                   <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
                     做空{opportunity.exchangeB}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium mr-2">
+                    做空{opportunity.exchangeA}
+                  </span>
+                  <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                    做多{opportunity.exchangeB}
                   </span>
                 </>
               )}
@@ -101,7 +89,7 @@ const OpportunityCard = ({ opportunity }) => {
             <div className="mt-2">
               <span className="text-sm text-secondary font-medium">资费套利利润：</span>
               <span className="text-lg font-bold text-primary ml-1">
-                {fundingProfit.profitPerPeriod}
+                {fundingProfit.profitPerPeriod}%
               </span>
             </div>
           </div>

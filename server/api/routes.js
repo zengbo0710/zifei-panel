@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getLatestOpportunities, fetchKlineData } = require('../services/arbitrageService');
+const { 
+    getLatestOpportunities, 
+    getOpportunitiesBySymbol,
+    getOpportunitiesByPair,
+    fetchKlineData 
+} = require('../services/arbitrageService');
 
 // 获取所有交易机会
 router.get('/opportunities', (req, res) => {
@@ -17,34 +22,16 @@ router.get('/opportunities', (req, res) => {
 
 // 获取特定交易对的机会
 router.get('/opportunities/:symbol', (req, res) => {
-    const symbol = req.params.symbol.toUpperCase();
-    const { opportunities, lastUpdateTime } = getLatestOpportunities();
-    const filteredOpportunities = opportunities.filter(opp => opp.symbol === symbol);
-    
-    res.json({
-        "success": true,
-        "data": {
-            "opportunities": filteredOpportunities,
-            "lastUpdate": lastUpdateTime,
-            "count": filteredOpportunities.length
-        }
-    });
+    const symbol = req.params.symbol;
+    const result = getOpportunitiesBySymbol(symbol);
+    res.json(result);
 });
 
 // 获取特定交易所对的机会
 router.get('/opportunities/pair/:pair', (req, res) => {
-    const pair = req.params.pair.toUpperCase();
-    const { opportunities, lastUpdateTime } = getLatestOpportunities();
-    const filteredOpportunities = opportunities.filter(opp => opp.pair === pair);
-    
-    res.json({
-        "success": true,
-        "data": {
-            "opportunities": filteredOpportunities,
-            "lastUpdate": lastUpdateTime,
-            "count": filteredOpportunities.length
-        }
-    });
+    const pair = req.params.pair;
+    const result = getOpportunitiesByPair(pair);
+    res.json(result);
 });
 
 // 获取状态信息

@@ -184,10 +184,62 @@ npm run dev
 详细的API文档请参考 [服务器API文档](server/README.md)。
 
 主要端点包括：
-- `GET /api/opportunities` - 获取所有套利机会
+- `GET /api/opportunities` - 获取所有套利机会，每个机会包含fundingProfit字段
 - `GET /api/opportunities/:symbol` - 获取特定交易对的套利机会
 - `GET /api/status` - 获取系统状态和资金费率信息
 - `GET /api/kline/:exchange/:symbol` - 获取K线图数据
+
+### fundingProfit 字段说明
+
+在API响应和函数返回值中，每个套利机会对象都包含了 `fundingProfit` 字段，该字段包含以下属性：
+
+```javascript
+"fundingProfit": {
+  "rawDiff": 0.0000706118012741, // 资金费率差值的绝对值（原始小数格式）
+  "rawProfit": 0.0000706118012741, // 资金费率套利利润（原始小数格式，与rawDiff相同）
+  "profitPerPeriod": "0.0071" // 每期利润百分比（格式化为百分比字符串，四位小数）
+}
+```
+
+此字段通过计算两个交易所间的资金费率差值绝对值得出，用于评估资金费率套利的潜在收益。
+
+### 函数API说明
+
+项目中提供了以下内部函数API，可直接在代码中调用，无需发起HTTP请求：
+
+#### getTopFundingProfitOpportunities
+
+此函数返回按照资费套利利润排序的前5个交易机会。
+
+**导入方式**：
+```javascript
+const { getTopFundingProfitOpportunities } = require('./server/services/arbitrageService');
+```
+
+**参数**：无需参数
+
+**返回值**：
+```javascript
+{
+  success: true,
+  data: {
+    opportunities: [
+      // 按资费套利利润排序的前5个交易机会数据，
+      // 每个对象的格式与API返回的opportunities数组中的对象格式一致
+    ],
+    lastUpdate: "2023-06-20T15:16:04.123Z", // 最后更新时间
+    count: 5 // 返回的机会数量
+  }
+}
+```
+
+**排序逻辑**：
+- 函数内部使用`fundingProfit.rawProfit`字段进行降序排序
+- 只返回排名前5的记录
+
+**使用场景**：
+- 直接在代码中获取资费套利利润最高的几个机会，无需重复调用API和在前端进行排序
+- 提高应用性能，减少不必要的数据传输
 
 ## 部署到Coolify
 

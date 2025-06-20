@@ -7,6 +7,25 @@ const { getFundingMaps } = require('./fundingService');
 let latestOpportunities = [];
 let lastUpdateTime = null;
 
+// 计算资金费率套利利润
+function calculateFundingProfit(fundingRateA, fundingRateB) {
+    // 使用默认值0，确保计算不会出错
+    const rateA = fundingRateA || 0;
+    const rateB = fundingRateB || 0;
+    
+    // 计算资金费率差值的绝对值
+    const fundingRateDiff = Math.abs(rateA - rateB);
+    
+    // 返回资金费率套利利润数据
+    return {
+        rawDiff: fundingRateDiff,
+        // 原始值（小数）
+        rawProfit: fundingRateDiff,
+        // 格式化为百分比字符串（前端显示用）
+        profitPerPeriod: (fundingRateDiff * 100).toFixed(4)
+    };
+}
+
 // 创建交易对支持映射
 let symbolMap = {};
 
@@ -36,6 +55,88 @@ const getLatestOpportunities = () => {
     return {
         opportunities: latestOpportunities,
         lastUpdateTime
+    };
+};
+
+// 获取按资费套利利润排序的前5个交易机会
+const getTopFundingProfitOpportunities = () => {
+    // 复制最新机会数组
+    const sortedOpportunities = [...latestOpportunities];
+    
+    // 按照资费套利利润（fundingProfit.rawProfit）降序排序
+    sortedOpportunities.sort((a, b) => {
+        const profitA = a.fundingProfit?.rawProfit || 0;
+        const profitB = b.fundingProfit?.rawProfit || 0;
+        return profitB - profitA;
+    });
+    
+    // 只返回前5个交易机会
+    const topOpportunities = sortedOpportunities.slice(0, 5);
+    
+    // 使返回格式与API保持一致
+    return {
+        success: true,
+        data: {
+            opportunities: topOpportunities,
+            lastUpdate: lastUpdateTime,
+            count: topOpportunities.length
+        }
+    };
+};
+
+// 获取特定交易对的套利机会
+const getOpportunitiesBySymbol = (symbol) => {
+    if (!symbol) {
+        return {
+            success: false,
+            error: '交易对参数不能为空'
+        };
+    }
+    
+    // 转换为大写以确保匹配
+    const upperSymbol = symbol.toUpperCase();
+    
+    // 过滤出特定交易对的机会
+    const filteredOpportunities = latestOpportunities.filter(opp => opp.symbol === upperSymbol);
+    
+    // 使返回格式与API保持一致
+    return {
+        success: true,
+        data: {
+            opportunities: filteredOpportunities,
+            lastUpdate: lastUpdateTime,
+            count: filteredOpportunities.length
+        }
+    };
+};
+
+// 获取特定交易所对组合的套利机会
+const getOpportunitiesByPair = (pair) => {
+    if (!pair) {
+        return {
+            success: false,
+            error: '交易所对参数不能为空'
+        };
+    }
+    
+    // 转换为大写以确保匹配
+    const upperPair = pair.toUpperCase();
+    
+    // 过滤出特定交易所对的机会
+    const filteredOpportunities = latestOpportunities.filter(opp => {
+        // 检查格式为 "EXCHANGEA-EXCHANGEB" 的交易所组合
+        const oppPair = `${opp.exchangeA}-${opp.exchangeB}`;
+        return oppPair === upperPair;
+    });
+    
+    // 使返回格式与API保持一致
+    return {
+        success: true,
+        data: {
+            opportunities: filteredOpportunities,
+            lastUpdate: lastUpdateTime,
+            count: filteredOpportunities.length
+        }
     };
 };
 
@@ -239,7 +340,9 @@ async function main() {
                     "A-FUNDINGPERIOD": undefined,
                     "B-FUNDINGRATE": fundingRateB,
                     "B-FUNDINGTIME": undefined,
-                    "B-FUNDINGPERIOD": undefined
+                    "B-FUNDINGPERIOD": undefined,
+                    // 添加资金费率套利利润计算结果
+                    "fundingProfit": calculateFundingProfit(fundingRateA, fundingRateB)
                 };
 
                 // 添加各交易所资金费率信息
@@ -325,7 +428,7 @@ async function main() {
             }
         }
 
-        // 按照价差绝对值倒序排序
+        // 按照价差绝对值倒序排序（默认排序）
         opportunities.sort((a, b) => b.opportunityValue - a.opportunityValue);
         
         // 更新最新的交易机会和更新时间
@@ -382,5 +485,8 @@ async function fetchKlineData(exchange, symbol, timeframe = '1m', limit = 1000) 
 module.exports = {
     main,
     getLatestOpportunities,
+    getTopFundingProfitOpportunities,
+    getOpportunitiesBySymbol,
+    getOpportunitiesByPair,
     fetchKlineData
 };
