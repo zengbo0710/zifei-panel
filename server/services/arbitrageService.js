@@ -7,7 +7,12 @@ const { getFundingMaps } = require('./fundingService');
 let latestOpportunities = [];
 let lastUpdateTime = null;
 
-// 计算资金费率套利利润和最优交易方向
+/**
+ * 计算资金费率套利利润和最优交易方向
+ * @param {number} fundingRateA - 交易所A的资金费率
+ * @param {number} fundingRateB - 交易所B的资金费率
+ * @returns {Object} 资金费率套利利润数据对象
+ */
 function calculateFundingProfit(fundingRateA, fundingRateB) {
     // 使用默认值0，确保计算不会出错
     const rateA = fundingRateA || 0;
@@ -61,7 +66,12 @@ function filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers
     return true;
 }
 
-// 获取最新的交易机会数据
+/**
+ * 获取最新的交易机会数据
+ * 该函数被API端点"/api/opportunities"直接调用
+ * 
+ * @returns {Object} 标准化的交易机会数据结构
+ */
 const getLatestOpportunities = () => {
     // 确保返回格式与HTTP API完全一致
     return {
@@ -74,7 +84,12 @@ const getLatestOpportunities = () => {
     };
 };
 
-// 获取按资费套利利润排序的前5个交易机会
+/**
+ * 获取按资费套利利润排序的前5个交易机会
+ * 数据格式与API端点返回格式保持一致
+ * 
+ * @returns {Object} 按资费套利利润排序的前5个交易机会
+ */
 const getTopFundingProfitOpportunities = () => {
     // 复制最新机会数组
     const sortedOpportunities = [...latestOpportunities];
@@ -100,7 +115,13 @@ const getTopFundingProfitOpportunities = () => {
     };
 };
 
-// 获取特定交易对的套利机会
+/**
+ * 获取特定交易对的套利机会
+ * 该函数被API端点"/api/opportunities/:symbol"直接调用
+ * 
+ * @param {string} symbol - 交易对符号（例如：BTC/USDT:USDT）
+ * @returns {Object} 包含该交易对所有套利机会的标准格式对象
+ */
 const getOpportunitiesBySymbol = (symbol) => {
     if (!symbol) {
         return {
@@ -126,7 +147,13 @@ const getOpportunitiesBySymbol = (symbol) => {
     };
 };
 
-// 获取特定交易所对组合的套利机会
+/**
+ * 获取特定交易所对组合的套利机会
+ * 该函数被API端点"/api/opportunities/pair/:pair"直接调用
+ * 
+ * @param {string} pair - 交易所对组合（格式：EXCHANGEA-EXCHANGEB，例如：BINANCE-OKX）
+ * @returns {Object} 包含该交易所对所有套利机会的标准格式对象
+ */
 const getOpportunitiesByPair = (pair) => {
     if (!pair) {
         return {
@@ -479,7 +506,18 @@ async function main() {
     }
 }
 
-// K线数据获取函数
+/**
+ * K线数据获取函数
+ * 该函数被API端点"/api/kline"直接调用
+ * 
+ * @async
+ * @param {string} exchange - 交易所名称（例如：'bybit', 'binance', 'okx', 'bitget'）
+ * @param {string} symbol - 交易对符号（例如：'BTC/USDT:USDT'）
+ * @param {string} [timeframe='1m'] - 时间框架（例如：'1m', '5m', '15m', '1h'）
+ * @param {number} [limit=1000] - 返回的K线数量限制
+ * @returns {Promise<Array>} K线数据数组，每个元素包含timestamp, open, high, low, close和volume字段
+ * @throws {Error} 如果获取数据失败
+ */
 async function fetchKlineData(exchange, symbol, timeframe = '1m', limit = 1000) {
     try {
         // 创建交易所实例

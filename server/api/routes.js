@@ -7,10 +7,12 @@ const {
     fetchKlineData 
 } = require('../services/arbitrageService');
 
-// 获取所有交易机会
-router.get('/opportunities', (req, res) => {
-    // 直接返回getLatestOpportunities的结果，因为它已经是标准格式
-    const result = getLatestOpportunities();
+// 注意：更具体的路由必须放在前面，否则会被不太具体的路由规则捕获
+
+// 获取特定交易所对的机会
+router.get('/opportunities/pair/:pair', (req, res) => {
+    const pair = req.params.pair;
+    const result = getOpportunitiesByPair(pair);
     res.json(result);
 });
 
@@ -21,10 +23,10 @@ router.get('/opportunities/:symbol', (req, res) => {
     res.json(result);
 });
 
-// 获取特定交易所对的机会
-router.get('/opportunities/pair/:pair', (req, res) => {
-    const pair = req.params.pair;
-    const result = getOpportunitiesByPair(pair);
+// 获取所有交易机会
+router.get('/opportunities', (req, res) => {
+    // 直接返回getLatestOpportunities的结果，因为它已经是标准格式
+    const result = getLatestOpportunities();
     res.json(result);
 });
 
