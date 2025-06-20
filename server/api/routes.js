@@ -9,15 +9,9 @@ const {
 
 // 获取所有交易机会
 router.get('/opportunities', (req, res) => {
-    const { opportunities, lastUpdateTime } = getLatestOpportunities();
-    res.json({
-        "success": true,
-        "data": {
-            "opportunities": opportunities,
-            "lastUpdate": lastUpdateTime,
-            "count": opportunities.length,
-        }
-    });
+    // 直接返回getLatestOpportunities的结果，因为它已经是标准格式
+    const result = getLatestOpportunities();
+    res.json(result);
 });
 
 // 获取特定交易对的机会
@@ -36,15 +30,15 @@ router.get('/opportunities/pair/:pair', (req, res) => {
 
 // 获取状态信息
 router.get('/status', (req, res) => {
-    const { opportunities, lastUpdateTime } = getLatestOpportunities();
+    const result = getLatestOpportunities();
     const { getFundingMaps } = require('../services/fundingService');
     const { bitgetFundingMap } = getFundingMaps();
     
     res.json({
         "success": true,
         "data": {
-            "lastUpdate": lastUpdateTime,
-            "totalOpportunities": opportunities.length,
+            "lastUpdate": result.data.lastUpdate,
+            "totalOpportunities": result.data.opportunities.length,
             "isRunning": true,
             // "bybitFundingMap": bybitFundingMap,
             "bitgetFundingMap": bitgetFundingMap,

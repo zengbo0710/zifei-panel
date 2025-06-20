@@ -7,7 +7,7 @@ const { getFundingMaps } = require('./fundingService');
 let latestOpportunities = [];
 let lastUpdateTime = null;
 
-// 计算资金费率套利利润
+// 计算资金费率套利利润和最优交易方向
 function calculateFundingProfit(fundingRateA, fundingRateB) {
     // 使用默认值0，确保计算不会出错
     const rateA = fundingRateA || 0;
@@ -16,13 +16,24 @@ function calculateFundingProfit(fundingRateA, fundingRateB) {
     // 计算资金费率差值的绝对值
     const fundingRateDiff = Math.abs(rateA - rateB);
     
-    // 返回资金费率套利利润数据
+    // 确定基于资金费率的最优交易方向
+    // 资金费率套利逻辑：
+    // - 正资金费率：做多方支付给做空方
+    // - 负资金费率：做空方支付给做多方
+    // 因此，我们希望：
+    // - 在费率较低（或更负）的交易所做多（收取资金费）
+    // - 在费率较高（或更正）的交易所做空（支付较少资金费或收取更多）
+    const optimalDirection = rateA > rateB ? "SALB" : "LASB"; // 如果A费率大于B，则做空A做多B更有利
+    
+    // 返回资金费率套利利润数据，确保与API文档一致
     return {
         rawDiff: fundingRateDiff,
         // 原始值（小数）
         rawProfit: fundingRateDiff,
         // 格式化为百分比字符串（前端显示用）
-        profitPerPeriod: (fundingRateDiff * 100).toFixed(4)
+        profitPerPeriod: (fundingRateDiff * 100).toFixed(4),
+        // 基于资金费率的最优交易方向
+        optimalDirection: optimalDirection
     };
 }
 
@@ -52,9 +63,14 @@ function filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers
 
 // 获取最新的交易机会数据
 const getLatestOpportunities = () => {
+    // 确保返回格式与HTTP API完全一致
     return {
-        opportunities: latestOpportunities,
-        lastUpdateTime
+        success: true,
+        data: {
+            opportunities: latestOpportunities,
+            lastUpdate: lastUpdateTime,
+            count: latestOpportunities.length
+        }
     };
 };
 
@@ -73,7 +89,7 @@ const getTopFundingProfitOpportunities = () => {
     // 只返回前5个交易机会
     const topOpportunities = sortedOpportunities.slice(0, 5);
     
-    // 使返回格式与API保持一致
+    // 确保返回格式与API文档完全一致
     return {
         success: true,
         data: {
@@ -99,7 +115,7 @@ const getOpportunitiesBySymbol = (symbol) => {
     // 过滤出特定交易对的机会
     const filteredOpportunities = latestOpportunities.filter(opp => opp.symbol === upperSymbol);
     
-    // 使返回格式与API保持一致
+    // 确保返回格式与API文档完全一致
     return {
         success: true,
         data: {
@@ -129,7 +145,7 @@ const getOpportunitiesByPair = (pair) => {
         return oppPair === upperPair;
     });
     
-    // 使返回格式与API保持一致
+    // 确保返回格式与API文档完全一致
     return {
         success: true,
         data: {
@@ -318,6 +334,9 @@ async function main() {
 
             // 使用筛选函数
             if (filterOpportunity(opportunity, okxTickers, bybitTickers, binanceTickers, bitgetTickers)) {
+                // 计算资金费率套利利润和最优交易方向
+                const fundingProfitData = calculateFundingProfit(fundingRateA, fundingRateB);
+                
                 const opportunityObj = {
                     "pair": "A-B",
                     "exchangeA": exchangeAPair,
@@ -332,7 +351,7 @@ async function main() {
                     "LASB": LASB,
                     "SALB": SALB,
                     "timestamp": new Date().toISOString(),
-                    "opportunity": opportunityType,
+                    "opportunity": opportunityType,          // 基于价格的机会类型（保留原有字段不变）
                     "opportunityValue": opportunityValue,
                     // 默认添加所有FUNDING字段
                     "A-FUNDINGRATE": fundingRateA,
@@ -342,7 +361,9 @@ async function main() {
                     "B-FUNDINGTIME": undefined,
                     "B-FUNDINGPERIOD": undefined,
                     // 添加资金费率套利利润计算结果
-                    "fundingProfit": calculateFundingProfit(fundingRateA, fundingRateB)
+                    "fundingProfit": fundingProfitData,
+                    // 添加基于资金费率的最优交易方向
+                    "optimalFundingDirection": fundingProfitData.optimalDirection
                 };
 
                 // 添加各交易所资金费率信息

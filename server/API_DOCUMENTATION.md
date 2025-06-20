@@ -44,8 +44,10 @@
           "fundingProfit": {
             "rawDiff": 0.0000706118012741,
             "rawProfit": 0.0000706118012741,
-            "profitPerPeriod": "0.0071"
-          }
+            "profitPerPeriod": "0.0071",
+            "optimalDirection": "SALB"
+          },
+          "optimalFundingDirection": "SALB"
         },
         // ... 更多套利机会
       ],
@@ -94,8 +96,10 @@
           "fundingProfit": {
             "rawDiff": 0.0000706118012741,
             "rawProfit": 0.0000706118012741,
-            "profitPerPeriod": "0.0071"
-          }
+            "profitPerPeriod": "0.0071",
+            "optimalDirection": "SALB"
+          },
+          "optimalFundingDirection": "SALB"
         }
         // 可能有多个特定交易对的套利机会
       ],
@@ -144,8 +148,10 @@
           "fundingProfit": {
             "rawDiff": 0.0000706118012741,
             "rawProfit": 0.0000706118012741,
-            "profitPerPeriod": "0.0071"
-          }
+            "profitPerPeriod": "0.0071",
+            "optimalDirection": "SALB"
+          },
+          "optimalFundingDirection": "SALB"
         },
         // ... 更多特定交易所组合的套利机会
       ],
@@ -211,6 +217,23 @@
   }
   ```
 
+## 响应字段说明
+
+API返回的数据中包含多个重要字段，特别是与交易方向相关的字段：
+
+- **opportunity**: 基于价格的交易方向，`LASB`(Long A Short B)或`SALB`(Short A Long B)，仅表示价格差异的可能交易方向。
+- **optimalFundingDirection**: 基于资金费率的最优交易方向，考虑资金费率的正负符号，`LASB`或`SALB`，表示可获得最大资金费率收益的方向。
+- **fundingProfit.optimalDirection**: 与`optimalFundingDirection`相同，在fundingProfit对象内部。
+
+**交易方向说明：**
+- `LASB` (Long A Short B): 做多交易所A，做空交易所B
+- `SALB` (Short A Long B): 做空交易所A，做多交易所B
+
+**最优交易方向判断逻辑：**
+- 资金费率为正：做多方向支付给做空方向
+- 资金费率为负：做空方向支付给做多方向
+- 系统会比较两个交易所的资金费率，计算出能获得最大收益的交易方向
+
 ## 内部函数API
 
 除了HTTP API外，系统还提供了以下可直接在代码中调用的函数API，无需发起HTTP请求：
@@ -239,8 +262,12 @@ const { getLatestOpportunities } = require('../services/arbitrageService');
 **返回值：**
 ```javascript
 {
-  opportunities: [ ... ], // 所有套利机会数组
-  lastUpdateTime: "2025-06-20T15:16:04.123Z" // 最后更新时间
+  success: true,
+  data: {
+    opportunities: [ ... ], // 所有套利机会数组，包含optimalFundingDirection字段
+    lastUpdate: "2025-06-20T15:16:04.123Z", // 最后更新时间
+    count: 419 // 返回的机会数量
+  }
 }
 ```
 
@@ -421,8 +448,10 @@ const { getTopFundingProfitOpportunities } = require('../services/arbitrageServi
         "fundingProfit": {
           "rawDiff": 0.0000706118012741,
           "rawProfit": 0.0000706118012741,
-          "profitPerPeriod": "0.0071"
-        }
+          "profitPerPeriod": "0.0071",
+          "optimalDirection": "SALB"
+        },
+        "optimalFundingDirection": "SALB"
       },
       // ...更多交易机会（最多5个，按资费套利利润排序）
     ],
@@ -552,6 +581,8 @@ const { fetchKlineData } = require('../services/arbitrageService');
   - `rawDiff`: 资金费率差值的绝对值（原始小数格式）
   - `rawProfit`: 资金费率套利利润（原始小数格式，与rawDiff相同）
   - `profitPerPeriod`: 每期利润百分比（格式化为百分比字符串，四位小数）
+  - `optimalDirection`: 基于资金费率的最优交易方向（"LASB"或"SALB"）
+- `optimalFundingDirection`: 基于资金费率的最优交易方向（与fundingProfit.optimalDirection值相同）
 
 ### 套利机会筛选逻辑
 

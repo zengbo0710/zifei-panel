@@ -6,8 +6,10 @@ const OpportunityCard = ({ opportunity }) => {
   // 状态管理
   const [showDetails, setShowDetails] = useState(false);
   
-  // 处理交易方向和颜色
-  const isLongAShortB = opportunity.opportunity === "LASB";
+  // 处理交易方向和颜色 - 优先使用基于资金费率的最优方向，如果不存在则使用基于价格的方向
+  const isLongAShortB = opportunity.optimalFundingDirection ? 
+    opportunity.optimalFundingDirection === "LASB" : 
+    opportunity.opportunity === "LASB";
   
   // 格式化日期
   const formatFundingTime = (timestamp) => {
@@ -91,6 +93,9 @@ const OpportunityCard = ({ opportunity }) => {
               <span className="text-lg font-bold text-primary ml-1">
                 {fundingProfit.profitPerPeriod}%
               </span>
+              <div className="text-xs text-gray-500 mt-1">
+                (按照上方交易方向操作可获得最优资金费率收益)
+              </div>
             </div>
           </div>
         </div>
